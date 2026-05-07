@@ -10,6 +10,10 @@ INPUT=$(cat)
 
 JSONL_FILE=$(echo "$INPUT" | /usr/bin/jq -r '.transcript_path // empty' 2>/dev/null)
 SESSION_ID=$(echo "$INPUT" | /usr/bin/jq -r '.session_id // empty' 2>/dev/null)
+STOP_HOOK_ACTIVE=$(echo "$INPUT" | /usr/bin/jq -r '.stop_hook_active // false' 2>/dev/null)
+if [ "$STOP_HOOK_ACTIVE" = "true" ]; then
+  export CONTEXT_LOOP_STOP_HOOK_ACTIVE=1
+fi
 
 if [ -z "$JSONL_FILE" ] || [ ! -f "$JSONL_FILE" ]; then
   if [ -n "$SESSION_ID" ]; then
@@ -37,11 +41,11 @@ fi
 HOOK_DIR="$(cd "$(dirname "$0")" && pwd)"
 STATE_DIR="${CONTEXT_LOOP_STATE_DIR:-$HOME/.claude/plugins/cache/nhangen-tools/context-loop/0.1.0/state}"
 ADVISORY_AT="${CONTEXT_LOOP_ADVISORY_AT:-0.35}"
-BLOCK_AT="${CONTEXT_LOOP_BLOCK_AT:-0.50}"
+ESCALATED_AT="${CONTEXT_LOOP_ESCALATED_AT:-${CONTEXT_LOOP_BLOCK_AT:-0.50}}"
 COOLDOWN_TURNS="${CONTEXT_LOOP_COOLDOWN_TURNS:-15}"
 
 mkdir -p "$STATE_DIR" 2>/dev/null || true
 
 "$BUN" "$HOOK_DIR/context-loop-worker.ts" \
   "$JSONL_FILE" "$STATE_DIR" "$SESSION_ID" \
-  "$ADVISORY_AT" "$BLOCK_AT" "$COOLDOWN_TURNS" 2>/dev/null || echo '{}'
+  "$ADVISORY_AT" "$ESCALATED_AT" "$COOLDOWN_TURNS" 2>/dev/null || echo '{}'

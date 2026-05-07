@@ -2,6 +2,13 @@
   "name": "context-loop",
   "version": "0.1.0",
   "description": "Stop-hook gate that triggers structured summarization + /compact when context fill crosses thresholds.",
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.0",
+    "@types/bun": "latest"
+  },
   "engines": { "bun": ">=1.1.0" },
   "license": "MIT"
 }

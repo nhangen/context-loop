@@ -4,12 +4,16 @@
 // Reads the live transcript, computes context fill % from the most recent
 // assistant `usage` block, applies cooldown + mid-chain safety, and emits
 // a Claude Code hookSpecificOutput.additionalContext payload when the
-// advisory or block threshold is crossed.
+// advisory or escalated-advisory threshold is crossed.
+//
+// `additionalContext` is advisory only — it cannot prevent tool use. Copy
+// reflects that. The two tiers (advisory / escalated) differ in urgency,
+// not enforcement.
 
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs";
 import { join } from "path";
 
-const [, , transcriptPath, stateDir, sessionId, advisoryAtRaw, blockAtRaw, cooldownTurnsRaw] =
+const [, , transcriptPath, stateDir, sessionId, advisoryAtRaw, escalatedAtRaw, cooldownTurnsRaw] =
   process.argv;
 
 if (!transcriptPath || !stateDir) {
@@ -18,12 +22,21 @@ if (!transcriptPath || !stateDir) {
 }
 
 const advisoryAt = parseFloat(advisoryAtRaw ?? "0.35");
-const blockAt = parseFloat(blockAtRaw ?? "0.50");
+const escalatedAt = parseFloat(escalatedAtRaw ?? "0.50");
 const cooldownTurns = parseInt(cooldownTurnsRaw ?? "15");
 
-// The transcript records the underlying API model (e.g. `claude-opus-4-7`)
-// without the `[1m]` suffix even when the user has opted into the 1M window
-// via settings.json. Read that file as the source of truth.
+// stop_hook_active is supplied by Claude Code on Stop payloads when the
+// hook itself is causing the agent to continue. We never want to fire on
+// our own re-entry. Read from STDIN-derived env var if the gate exposed it.
+const stopHookActive = process.env["CONTEXT_LOOP_STOP_HOOK_ACTIVE"] === "1";
+if (stopHookActive) {
+  console.log("{}");
+  process.exit(0);
+}
+
+// Window resolution: prefer the per-message model field if it carries the
+// 1M marker (future-proof); fall back to settings.json since the current
+// transcript records bare model names without the suffix.
 function windowFromSettings(): number {
   try {
     const home = process.env["HOME"] || "";
@@ -53,9 +66,11 @@ const lines = raw.split("\n").filter(Boolean);
 let assistantTurns = 0;
 let lastUsage: Record<string, number> | null = null;
 let lastModel = "";
+let lastAssistantUuid = "";
 let lastAssistantHadToolUse = false;
 let lastToolUseIds: Set<string> = new Set();
-let toolResultIds: Set<string> = new Set();
+const toolResultIds: Set<string> = new Set();
+const assistantUuids: string[] = [];
 
 for (const line of lines) {
   let obj: Record<string, unknown>;
@@ -83,13 +98,20 @@ for (const line of lines) {
 
   const usage = msg["usage"] as Record<string, number> | undefined;
   const model = String(msg["model"] ?? "");
+  const uuid = String(obj["uuid"] ?? "");
   if (usage && (usage["output_tokens"] ?? 0) > 0) {
     assistantTurns++;
     lastUsage = usage;
     if (model) lastModel = model;
+    if (uuid) {
+      lastAssistantUuid = uuid;
+      assistantUuids.push(uuid);
+    }
   }
 
-  // Track tool_use blocks to detect mid-chain (unmatched) on the final turn.
+  // Track tool_use blocks on the *final* assistant turn to detect mid-chain.
+  // Earlier turns are intentionally not tracked — the matched tool_results
+  // accumulator covers them at the transcript level.
   lastAssistantHadToolUse = false;
   lastToolUseIds = new Set();
   if (Array.isArray(msg["content"])) {
@@ -125,19 +147,20 @@ const cacheRead = lastUsage["cache_read_input_tokens"] ?? 0;
 const cacheCreate = lastUsage["cache_creation_input_tokens"] ?? 0;
 const fill = (inputTokens + cacheRead + cacheCreate) / window;
 
-// Read state for cooldown / last-fill tracking.
+// State persists by last-fired assistant UUID, not turn count. Turn counts
+// reset after `/compact` rewrites the transcript; UUIDs survive (or, if
+// they don't, that's the signal that compaction happened and cooldown
+// should reset).
 const stateFile = join(stateDir, `${sessionId || "default"}.json`);
 type State = {
-  lastFiredTurn: number;
+  lastFiredUuid: string;
   lastFiredFill: number;
   lastFiredAt: string;
-  consecutiveSkips: number;
 };
 let state: State = {
-  lastFiredTurn: -9999,
+  lastFiredUuid: "",
   lastFiredFill: 0,
   lastFiredAt: "",
-  consecutiveSkips: 0,
 };
 if (existsSync(stateFile)) {
   try {
@@ -147,12 +170,24 @@ if (existsSync(stateFile)) {
   }
 }
 
-const turnsSinceLastFire = assistantTurns - state.lastFiredTurn;
-const inCooldown = turnsSinceLastFire < cooldownTurns;
+// Cooldown: count assistant turns AFTER the last-fired UUID. If the UUID
+// is gone (post-compaction), treat as "no cooldown" — fresh start.
+let inCooldown = false;
+if (state.lastFiredUuid) {
+  const idx = assistantUuids.indexOf(state.lastFiredUuid);
+  if (idx >= 0) {
+    const turnsSinceFire = assistantUuids.length - 1 - idx;
+    inCooldown = turnsSinceFire < cooldownTurns;
+  }
+  // idx < 0 means compaction rewrote the transcript and dropped the marker.
+  // Fall through with inCooldown = false.
+}
 
-let level: "none" | "advisory" | "block" = "none";
-if (fill >= blockAt) level = "block";
+let level: "none" | "advisory" | "escalated" = "none";
+if (fill >= escalatedAt) level = "escalated";
 else if (fill >= advisoryAt && !inCooldown) level = "advisory";
+// At escalated tier we ignore cooldown — if fill is still that high after
+// a recent fire, the agent didn't act on the advisory and needs a louder one.
 
 if (level === "none") {
   console.log("{}");
@@ -165,10 +200,9 @@ writeFileSync(
   stateFile,
   JSON.stringify(
     {
-      lastFiredTurn: assistantTurns,
+      lastFiredUuid: lastAssistantUuid,
       lastFiredFill: fill,
       lastFiredAt: new Date().toISOString(),
-      consecutiveSkips: 0,
     },
     null,
     2,
@@ -177,21 +211,21 @@ writeFileSync(
 
 const pct = (fill * 100).toFixed(1);
 const head =
-  level === "block"
-    ? `🛑 context-loop: HARD BLOCK at ${pct}% fill (${(blockAt * 100).toFixed(0)}% threshold). You MUST checkpoint + compact before any further tool use.`
+  level === "escalated"
+    ? `⚠️⚠️ context-loop: ESCALATED advisory at ${pct}% fill (${(escalatedAt * 100).toFixed(0)}% threshold). Effectiveness is degraded; checkpoint + compact before continuing.`
     : `⚠️ context-loop: advisory at ${pct}% fill (${(advisoryAt * 100).toFixed(0)}% threshold). Checkpoint + compact recommended before next major task.`;
 
 const body = [
   head,
   "",
-  "**Action:** invoke the `context-loop:checkpoint` skill now. It will:",
-  "1. Dispatch a clean-context subagent to write a structured Live State brief from the transcript on disk.",
-  "2. Append the brief to claude-mem + the Obsidian daily note for durable recall.",
-  "3. Run `/compact <brief>` so the live conversation drops noise but retains the verbatim Live State.",
+  "**Action:** invoke the `checkpoint` skill from the context-loop plugin. It will:",
+  "1. Dispatch a clean-context subagent that produces a verbatim Live State brief from the transcript.",
+  "2. Append the brief to today's Obsidian daily note and to `state/checkpoints/` for durable recall.",
+  "3. Run `/compact` so the live conversation sheds noise; the brief is then re-stated as a user message so the post-compact agent sees it intact.",
   "",
-  level === "block"
-    ? "Do not start new work until compaction completes. claude-mem and Obsidian preserve everything; the live conversation does not need to."
-    : "Skip only if you are mid-task and finishing in the next 1–2 turns; otherwise act now.",
+  level === "escalated"
+    ? "Do this now. claude-mem and Obsidian preserve everything; the live conversation does not need to."
+    : "Skip only if you're mid-task and finishing in 1–2 turns; otherwise act now.",
 ].join("\n");
 
 const out = {
