@@ -62,6 +62,7 @@ export interface PostFireSnapshot {
   lastTotalTokens: number;
   lastFillPct: number;
   windowSize: number;
+  hasCompactSummary: boolean;
 }
 
 const DEFAULT_TIMEOUT_TURNS = 30;
@@ -228,16 +229,18 @@ export function detectOutcomes(
       let outcome: OutcomeRow | null = null;
 
       if (!transcriptHasFireUuid) {
-        outcome = {
-          fireEventId: fire.id,
-          acted: 1,
-          detectedAt: now,
-          preFillPct: fire.fillPct,
-          postFillPct: snap.lastFillPct,
-          tokensReclaimed,
-          turnsUntilAction: null,
-          detectionMethod: "uuid_lost",
-        };
+        if (snap.hasCompactSummary) {
+          outcome = {
+            fireEventId: fire.id,
+            acted: 1,
+            detectedAt: now,
+            preFillPct: fire.fillPct,
+            postFillPct: snap.lastFillPct,
+            tokensReclaimed,
+            turnsUntilAction: null,
+            detectionMethod: "uuid_lost",
+          };
+        }
       } else {
         const turnsSinceFire = snap.assistantUuids.length - 1 - fireUuidIdx;
         const corroborated = fillDrop >= 0.4;

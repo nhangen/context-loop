@@ -61,12 +61,30 @@ describe("detectOutcomes — UUID-lost (compaction rewrote transcript)", () => {
       lastTotalTokens: 30_000,
       lastFillPct: 0.15,
       windowSize: 200_000,
+      hasCompactSummary: true,
     };
     const outcomes = detectOutcomes(db, "S1", snap, 2_000);
     expect(outcomes).toHaveLength(1);
     expect(outcomes[0]!.acted).toBe(1);
     expect(outcomes[0]!.detectionMethod).toBe("uuid_lost");
     expect(outcomes[0]!.tokensReclaimed).toBe(60_000);  // 90_000 − 30_000
+  });
+});
+
+describe("detectOutcomes — uuid_lost gated by compact summary", () => {
+  it("does NOT record uuid_lost when fire's uuid is gone but transcript has no isCompactSummary", () => {
+    const db = freshDb();
+    recordFire(db, baseFire);
+    const snap: PostFireSnapshot = {
+      assistantUuids: ["uuid-NEW-1", "uuid-NEW-2"],   // uuid-A wiped (e.g., /clear)
+      lastTotalTokens: 30_000,
+      lastFillPct: 0.15,
+      windowSize: 200_000,
+      hasCompactSummary: false,
+    };
+    const outcomes = detectOutcomes(db, "S1", snap, 2_000);
+    expect(outcomes).toHaveLength(0);
+    expect(unresolvedFires(db, "S1")).toHaveLength(1);
   });
 });
 
@@ -79,6 +97,7 @@ describe("detectOutcomes — fill-drop corroboration", () => {
       lastTotalTokens: 8_000,
       lastFillPct: 0.04,                     // 0.45 − 0.04 = 0.41 drop
       windowSize: 200_000,
+      hasCompactSummary: false,
     };
     const outcomes = detectOutcomes(db, "S1", snap, 2_000);
     expect(outcomes).toHaveLength(1);
@@ -94,6 +113,7 @@ describe("detectOutcomes — fill-drop corroboration", () => {
       lastTotalTokens: 80_000,
       lastFillPct: 0.40,                     // only 5pp drop
       windowSize: 200_000,
+      hasCompactSummary: false,
     };
     const outcomes = detectOutcomes(db, "S1", snap, 2_000);
     expect(outcomes).toHaveLength(0);
@@ -112,6 +132,7 @@ describe("detectOutcomes — timeout", () => {
       lastTotalTokens: 95_000,
       lastFillPct: 0.475,                    // ~no drop
       windowSize: 200_000,
+      hasCompactSummary: false,
     };
     const outcomes = detectOutcomes(db, "S1", snap, 2_000, 30);
     expect(outcomes).toHaveLength(1);
@@ -130,6 +151,7 @@ describe("detectOutcomes — idempotency", () => {
       lastTotalTokens: 30_000,
       lastFillPct: 0.15,
       windowSize: 200_000,
+      hasCompactSummary: true,
     };
     const first = detectOutcomes(db, "S1", snap, 2_000);
     const second = detectOutcomes(db, "S1", snap, 3_000);
@@ -233,6 +255,7 @@ describe("detectOutcomes — negative tokensReclaimed coerced to null", () => {
       lastTotalTokens: 120_000,
       lastFillPct: 0.10,
       windowSize: 200_000,
+      hasCompactSummary: true,
     };
     const outcomes = detectOutcomes(db, "S1", snap, 2_000);
     expect(outcomes).toHaveLength(1);

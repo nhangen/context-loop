@@ -89,6 +89,7 @@ let lastAssistantHadToolUse = false;
 let lastToolUseIds: Set<string> = new Set();
 const toolResultIds: Set<string> = new Set();
 const assistantUuids: string[] = [];
+let hasCompactSummary = false;
 
 for (const line of lines) {
   let obj: Record<string, unknown>;
@@ -99,6 +100,7 @@ for (const line of lines) {
   }
 
   if (obj["type"] === "user") {
+    if (obj["isCompactSummary"] === true) hasCompactSummary = true;
     const content = (obj["message"] as Record<string, unknown>)?.["content"];
     if (Array.isArray(content)) {
       for (const block of content as Array<Record<string, unknown>>) {
@@ -167,6 +169,7 @@ if (analyticsDb && sessionId) {
     lastTotalTokens: inp + cr + cw,
     lastFillPct: (inp + cr + cw) / w,
     windowSize: w,
+    hasCompactSummary,
   };
   try {
     detectOutcomes(analyticsDb, sessionId, snap, Math.floor(Date.now() / 1000));
