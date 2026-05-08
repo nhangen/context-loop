@@ -40,7 +40,7 @@ if [ ! -x "$BUN" ]; then
 fi
 
 HOOK_DIR="$(cd "$(dirname "$0")" && pwd)"
-STATE_DIR="${CONTEXT_LOOP_STATE_DIR:-$HOME/.claude/plugins/cache/nhangen-tools/context-loop/0.1.0/state}"
+STATE_DIR="${CONTEXT_LOOP_STATE_DIR:-$HOME/.claude/state/context-loop}"
 ADVISORY_AT="${CONTEXT_LOOP_ADVISORY_AT:-0.35}"
 ESCALATED_AT="${CONTEXT_LOOP_ESCALATED_AT:-${CONTEXT_LOOP_BLOCK_AT:-0.50}}"
 COOLDOWN_TURNS="${CONTEXT_LOOP_COOLDOWN_TURNS:-15}"
