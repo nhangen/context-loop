@@ -1,7 +1,10 @@
-import { describe, it, expect, beforeEach } from "bun:test";
+import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import { Database } from "bun:sqlite";
+import { mkdtempSync, rmSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
 import {
-  initSchema, recordFire, recordOutcome, detectOutcomes, unresolvedFires,
+  initSchema, openWriterDb, recordFire, recordOutcome, detectOutcomes, unresolvedFires,
   assertSchemaCompatible, SCHEMA_VERSION,
   type FireRow, type PostFireSnapshot, type OutcomeRow,
 } from "../hooks/context-loop-db";
@@ -243,6 +246,37 @@ describe("recordOutcome — surfaces double-detect", () => {
     };
     recordOutcome(db, first);
     expect(() => recordOutcome(db, { ...first, acted: 0, detectionMethod: "timeout", tokensReclaimed: null })).toThrow();
+  });
+});
+
+describe("file-backed db — concurrent fire is deduped by unique index", () => {
+  let tmp: string;
+  let dbPath: string;
+  beforeEach(() => {
+    tmp = mkdtempSync(join(tmpdir(), "ctxloop-test-"));
+    dbPath = join(tmp, "ctx.db");
+  });
+  afterEach(() => {
+    rmSync(tmp, { recursive: true, force: true });
+  });
+
+  it("two writers racing on the same (session_id, uuid) produce exactly one row", () => {
+    const a = openWriterDb(dbPath);
+    const b = openWriterDb(dbPath);
+    const idA = recordFire(a, baseFire);
+    const idB = recordFire(b, baseFire);
+    a.close();
+    b.close();
+
+    expect(idA).toBeNumber();
+    expect(idB).toBeNull();
+
+    const reader = openWriterDb(dbPath);
+    const count = reader.query<{ n: number }, []>(
+      "SELECT COUNT(*) AS n FROM fire_events"
+    ).get();
+    reader.close();
+    expect(count?.n).toBe(1);
   });
 });
 
