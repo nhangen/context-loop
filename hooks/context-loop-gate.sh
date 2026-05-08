@@ -10,6 +10,7 @@ INPUT=$(cat)
 
 JSONL_FILE=$(echo "$INPUT" | /usr/bin/jq -r '.transcript_path // empty' 2>/dev/null)
 SESSION_ID=$(echo "$INPUT" | /usr/bin/jq -r '.session_id // empty' 2>/dev/null)
+CWD=$(echo "$INPUT" | /usr/bin/jq -r '.cwd // empty' 2>/dev/null)
 STOP_HOOK_ACTIVE=$(echo "$INPUT" | /usr/bin/jq -r '.stop_hook_active // false' 2>/dev/null)
 if [ "$STOP_HOOK_ACTIVE" = "true" ]; then
   export CONTEXT_LOOP_STOP_HOOK_ACTIVE=1
@@ -39,13 +40,18 @@ if [ ! -x "$BUN" ]; then
 fi
 
 HOOK_DIR="$(cd "$(dirname "$0")" && pwd)"
-STATE_DIR="${CONTEXT_LOOP_STATE_DIR:-$HOME/.claude/plugins/cache/nhangen-tools/context-loop/0.1.0/state}"
+STATE_DIR="${CONTEXT_LOOP_STATE_DIR:-$HOME/.claude/state/context-loop}"
 ADVISORY_AT="${CONTEXT_LOOP_ADVISORY_AT:-0.35}"
 ESCALATED_AT="${CONTEXT_LOOP_ESCALATED_AT:-${CONTEXT_LOOP_BLOCK_AT:-0.50}}"
 COOLDOWN_TURNS="${CONTEXT_LOOP_COOLDOWN_TURNS:-15}"
 
 mkdir -p "$STATE_DIR" 2>/dev/null || true
 
+DB_PATH="${CONTEXT_LOOP_DB_PATH:-$HOME/.claude/context-loop.db}"
+ERROR_LOG="$HOME/.claude/context-loop-errors.log"
+mkdir -p "$(dirname "$ERROR_LOG")" 2>/dev/null || true
+
 "$BUN" "$HOOK_DIR/context-loop-worker.ts" \
   "$JSONL_FILE" "$STATE_DIR" "$SESSION_ID" \
-  "$ADVISORY_AT" "$ESCALATED_AT" "$COOLDOWN_TURNS" 2>/dev/null || echo '{}'
+  "$ADVISORY_AT" "$ESCALATED_AT" "$COOLDOWN_TURNS" \
+  "$CWD" "$DB_PATH" 2>>"$ERROR_LOG" || echo '{}'

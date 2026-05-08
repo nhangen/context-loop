@@ -10,11 +10,29 @@
 // reflects that. The two tiers (advisory / escalated) differ in urgency,
 // not enforcement.
 
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs";
+import { readFileSync, writeFileSync, existsSync, mkdirSync, appendFileSync } from "fs";
 import { join } from "path";
+import { homedir } from "os";
+import {
+  openWriterDb, recordFire, detectOutcomes, defaultDbPath,
+  type FireRow, type PostFireSnapshot,
+} from "./context-loop-db";
 
-const [, , transcriptPath, stateDir, sessionId, advisoryAtRaw, escalatedAtRaw, cooldownTurnsRaw] =
-  process.argv;
+function breadcrumb(msg: string): void {
+  const home = homedir();
+  if (!home) return;
+  const path = join(home, ".claude", "context-loop-errors.log");
+  try {
+    mkdirSync(join(path, ".."), { recursive: true });
+    appendFileSync(path, new Date().toISOString() + " " + msg + "\n");
+  } catch { /* best-effort */ }
+}
+
+const [
+  , , transcriptPath, stateDir, sessionId,
+  advisoryAtRaw, escalatedAtRaw, cooldownTurnsRaw,
+  cwdArg, dbPathArg,
+] = process.argv;
 
 if (!transcriptPath || !stateDir) {
   console.log("{}");
@@ -71,6 +89,7 @@ let lastAssistantHadToolUse = false;
 let lastToolUseIds: Set<string> = new Set();
 const toolResultIds: Set<string> = new Set();
 const assistantUuids: string[] = [];
+let hasCompactSummary = false;
 
 for (const line of lines) {
   let obj: Record<string, unknown>;
@@ -81,6 +100,7 @@ for (const line of lines) {
   }
 
   if (obj["type"] === "user") {
+    if (obj["isCompactSummary"] === true) hasCompactSummary = true;
     const content = (obj["message"] as Record<string, unknown>)?.["content"];
     if (Array.isArray(content)) {
       for (const block of content as Array<Record<string, unknown>>) {
@@ -127,6 +147,35 @@ for (const line of lines) {
 if (!lastUsage) {
   console.log("{}");
   process.exit(0);
+}
+
+const dbPath = dbPathArg || defaultDbPath();
+const cwd = cwdArg || null;
+let analyticsDb: ReturnType<typeof openWriterDb> | null = null;
+try {
+  analyticsDb = openWriterDb(dbPath);
+} catch (err) {
+  breadcrumb("openWriterDb failed path=" + dbPath + " err=" + (err instanceof Error ? err.message : String(err)));
+  analyticsDb = null;
+}
+
+if (analyticsDb && sessionId) {
+  const inp = lastUsage["input_tokens"] ?? 0;
+  const cr = lastUsage["cache_read_input_tokens"] ?? 0;
+  const cw = lastUsage["cache_creation_input_tokens"] ?? 0;
+  const w = windowFor(lastModel);
+  const snap: PostFireSnapshot = {
+    assistantUuids,
+    lastTotalTokens: inp + cr + cw,
+    lastFillPct: (inp + cr + cw) / w,
+    windowSize: w,
+    hasCompactSummary,
+  };
+  try {
+    detectOutcomes(analyticsDb, sessionId, snap, Math.floor(Date.now() / 1000));
+  } catch (err) {
+    breadcrumb("detectOutcomes threw session=" + sessionId + " err=" + (err instanceof Error ? err.message : String(err)));
+  }
 }
 
 // Mid-chain safety: if the final assistant turn emitted tool_use blocks
@@ -190,24 +239,43 @@ else if (fill >= advisoryAt && !inCooldown) level = "advisory";
 // a recent fire, the agent didn't act on the advisory and needs a louder one.
 
 if (level === "none") {
+  if (analyticsDb) try { analyticsDb.close(); } catch { /* ignore */ }
   console.log("{}");
   process.exit(0);
 }
 
-// Persist state.
-try { mkdirSync(stateDir, { recursive: true }); } catch { /* ok */ }
-writeFileSync(
-  stateFile,
-  JSON.stringify(
-    {
-      lastFiredUuid: lastAssistantUuid,
-      lastFiredFill: fill,
-      lastFiredAt: new Date().toISOString(),
-    },
-    null,
-    2,
-  ),
-);
+if (analyticsDb && sessionId && lastAssistantUuid) {
+  const fireRow: FireRow = {
+    sessionId,
+    cwd,
+    firedAt: Math.floor(Date.now() / 1000),
+    level,
+    fillPct: fill,
+    inputTokens,
+    cacheRead,
+    cacheCreate,
+    windowSize: window,
+    model: lastModel || null,
+    assistantUuid: lastAssistantUuid,
+    thresholdAdvisory: advisoryAt,
+    thresholdEscalated: escalatedAt,
+  };
+  try {
+    const fireId = recordFire(analyticsDb, fireRow);
+    if (fireId === null) {
+      breadcrumb("fires_duplicate session=" + sessionId + " uuid=" + lastAssistantUuid);
+    }
+  } catch (err) {
+    breadcrumb("recordFire threw session=" + sessionId + " err=" + (err instanceof Error ? err.message : String(err)));
+  }
+}
+if (analyticsDb) {
+  try {
+    analyticsDb.close();
+  } catch (err) {
+    breadcrumb("db.close threw err=" + (err instanceof Error ? err.message : String(err)));
+  }
+}
 
 const pct = (fill * 100).toFixed(1);
 const head =
@@ -236,3 +304,23 @@ const out = {
 };
 
 console.log(JSON.stringify(out));
+
+// Persist cooldown state AFTER emitting the advisory. State write is
+// best-effort bookkeeping; a failure here must never swallow the user-visible nudge.
+try {
+  mkdirSync(stateDir, { recursive: true });
+  writeFileSync(
+    stateFile,
+    JSON.stringify(
+      {
+        lastFiredUuid: lastAssistantUuid,
+        lastFiredFill: fill,
+        lastFiredAt: new Date().toISOString(),
+      },
+      null,
+      2,
+    ),
+  );
+} catch (err) {
+  breadcrumb("stateFile write failed path=" + stateFile + " err=" + (err instanceof Error ? err.message : String(err)));
+}
