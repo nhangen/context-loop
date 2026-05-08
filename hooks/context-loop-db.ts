@@ -1,8 +1,23 @@
 import { Database } from "bun:sqlite";
 import { join } from "path";
-import { mkdirSync } from "fs";
+import { mkdirSync, appendFileSync } from "fs";
+import { homedir } from "os";
 
 export const SCHEMA_VERSION = 1;
+
+function errorLogPath(): string {
+  const home = homedir();
+  return home ? join(home, ".claude", "context-loop-errors.log") : "";
+}
+
+function breadcrumb(msg: string): void {
+  const p = errorLogPath();
+  if (!p) return;
+  try {
+    mkdirSync(join(p, ".."), { recursive: true });
+    appendFileSync(p, `${new Date().toISOString()} ${msg}\n`);
+  } catch { /* best-effort */ }
+}
 
 export interface FireRow {
   sessionId: string;
@@ -52,7 +67,11 @@ export interface PostFireSnapshot {
 const DEFAULT_TIMEOUT_TURNS = 30;
 
 export function defaultDbPath(): string {
-  return join(process.env["HOME"] ?? "~", ".claude", "context-loop.db");
+  const home = homedir();
+  if (!home) {
+    throw new Error("context-loop: HOME is empty; refusing to compute default db path");
+  }
+  return join(home, ".claude", "context-loop.db");
 }
 
 export function openWriterDb(path: string): Database {
@@ -60,8 +79,26 @@ export function openWriterDb(path: string): Database {
   const db = new Database(path);
   db.exec("PRAGMA journal_mode = WAL");
   db.exec("PRAGMA busy_timeout = 5000");
+  db.exec("PRAGMA foreign_keys = ON");
   initSchema(db);
   return db;
+}
+
+export function assertSchemaCompatible(db: Database): void {
+  const row = db.query<{ value: string }, []>(
+    "SELECT value FROM meta WHERE key = 'schema_version'",
+  ).get();
+  if (!row) return;
+  const found = parseInt(row.value, 10);
+  if (Number.isNaN(found)) {
+    throw new Error("context-loop: meta.schema_version is not numeric: " + row.value);
+  }
+  if (found > SCHEMA_VERSION) {
+    throw new Error(
+      "context-loop: db schema_version=" + found +
+      " is newer than this binary (" + SCHEMA_VERSION + "); refusing to write",
+    );
+  }
 }
 
 export function initSchema(db: Database): void {
@@ -75,7 +112,7 @@ export function initSchema(db: Database): void {
       session_id TEXT NOT NULL,
       cwd TEXT,
       fired_at INTEGER NOT NULL,
-      level TEXT NOT NULL,
+      level TEXT NOT NULL CHECK (level IN ('advisory','escalated')),
       fill_pct REAL NOT NULL,
       input_tokens INTEGER NOT NULL,
       cache_read INTEGER NOT NULL,
@@ -96,16 +133,26 @@ export function initSchema(db: Database): void {
       detected_at INTEGER,
       pre_fill_pct REAL NOT NULL,
       post_fill_pct REAL,
-      tokens_reclaimed INTEGER,
+      tokens_reclaimed INTEGER CHECK (tokens_reclaimed IS NULL OR tokens_reclaimed >= 0),
       turns_until_action INTEGER,
       detection_method TEXT NOT NULL
+        CHECK (detection_method IN ('uuid_lost','fill_drop_corroborated','timeout'))
     );
   `);
-  db.query("INSERT OR REPLACE INTO meta(key, value) VALUES (?, ?)")
+  assertSchemaCompatible(db);
+  db.query("INSERT OR IGNORE INTO meta(key, value) VALUES (?, ?)")
     .run("schema_version", String(SCHEMA_VERSION));
 }
 
+const ALLOWED_LEVELS = new Set<FireRow["level"]>(["advisory", "escalated"]);
+const ALLOWED_METHODS = new Set<OutcomeRow["detectionMethod"]>([
+  "uuid_lost", "fill_drop_corroborated", "timeout",
+]);
+
 export function recordFire(db: Database, row: FireRow): number | null {
+  if (!ALLOWED_LEVELS.has(row.level)) {
+    throw new Error("context-loop: refusing to record fire with unknown level: " + row.level);
+  }
   const stmt = db.query<{ id: number }, [
     string, string | null, number, string, number,
     number, number, number, number, string | null, string, number, number,
@@ -126,8 +173,11 @@ export function recordFire(db: Database, row: FireRow): number | null {
 }
 
 export function recordOutcome(db: Database, row: OutcomeRow): void {
+  if (!ALLOWED_METHODS.has(row.detectionMethod)) {
+    throw new Error("context-loop: refusing to record outcome with unknown detection_method: " + row.detectionMethod);
+  }
   db.query(`
-    INSERT OR REPLACE INTO compaction_outcomes (
+    INSERT INTO compaction_outcomes (
       fire_event_id, acted, detected_at, pre_fill_pct, post_fill_pct,
       tokens_reclaimed, turns_until_action, detection_method
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
@@ -165,31 +215,19 @@ export function detectOutcomes(
   snap.assistantUuids.forEach((u, i) => uuidIndex.set(u, i));
 
   for (const fire of fires) {
-    const fireUuidIdx = uuidIndex.get(fire.assistantUuid);
-    const transcriptHasFireUuid = fireUuidIdx !== undefined;
+    try {
+      const fireUuidIdx = uuidIndex.get(fire.assistantUuid);
+      const transcriptHasFireUuid = fireUuidIdx !== undefined;
 
-    const preTokens = fire.inputTokens + fire.cacheRead + fire.cacheCreate;
-    const postTokens = snap.lastTotalTokens;
-    const tokensReclaimed = preTokens - postTokens;
-    const fillDrop = fire.fillPct - snap.lastFillPct;
+      const preTokens = fire.inputTokens + fire.cacheRead + fire.cacheCreate;
+      const postTokens = snap.lastTotalTokens;
+      const rawReclaimed = preTokens - postTokens;
+      const tokensReclaimed = rawReclaimed >= 0 ? rawReclaimed : null;
+      const fillDrop = fire.fillPct - snap.lastFillPct;
 
-    let outcome: OutcomeRow | null = null;
+      let outcome: OutcomeRow | null = null;
 
-    if (!transcriptHasFireUuid) {
-      outcome = {
-        fireEventId: fire.id,
-        acted: 1,
-        detectedAt: now,
-        preFillPct: fire.fillPct,
-        postFillPct: snap.lastFillPct,
-        tokensReclaimed,
-        turnsUntilAction: null,
-        detectionMethod: "uuid_lost",
-      };
-    } else {
-      const turnsSinceFire = snap.assistantUuids.length - 1 - fireUuidIdx;
-      const corroborated = fillDrop >= 0.4;
-      if (corroborated) {
+      if (!transcriptHasFireUuid) {
         outcome = {
           fireEventId: fire.id,
           acted: 1,
@@ -197,26 +235,46 @@ export function detectOutcomes(
           preFillPct: fire.fillPct,
           postFillPct: snap.lastFillPct,
           tokensReclaimed,
-          turnsUntilAction: turnsSinceFire,
-          detectionMethod: "fill_drop_corroborated",
-        };
-      } else if (turnsSinceFire >= timeoutTurns) {
-        outcome = {
-          fireEventId: fire.id,
-          acted: 0,
-          detectedAt: now,
-          preFillPct: fire.fillPct,
-          postFillPct: snap.lastFillPct,
-          tokensReclaimed: null,
           turnsUntilAction: null,
-          detectionMethod: "timeout",
+          detectionMethod: "uuid_lost",
         };
+      } else {
+        const turnsSinceFire = snap.assistantUuids.length - 1 - fireUuidIdx;
+        const corroborated = fillDrop >= 0.4;
+        if (corroborated) {
+          outcome = {
+            fireEventId: fire.id,
+            acted: 1,
+            detectedAt: now,
+            preFillPct: fire.fillPct,
+            postFillPct: snap.lastFillPct,
+            tokensReclaimed,
+            turnsUntilAction: turnsSinceFire,
+            detectionMethod: "fill_drop_corroborated",
+          };
+        } else if (turnsSinceFire >= timeoutTurns) {
+          outcome = {
+            fireEventId: fire.id,
+            acted: 0,
+            detectedAt: now,
+            preFillPct: fire.fillPct,
+            postFillPct: snap.lastFillPct,
+            tokensReclaimed: null,
+            turnsUntilAction: null,
+            detectionMethod: "timeout",
+          };
+        }
       }
-    }
 
-    if (outcome) {
-      recordOutcome(db, outcome);
-      recorded.push(outcome);
+      if (outcome) {
+        recordOutcome(db, outcome);
+        recorded.push(outcome);
+      }
+    } catch (err) {
+      breadcrumb(
+        "detectOutcomes: fire_event_id=" + fire.id +
+        " session=" + sessionId + " err=" + (err instanceof Error ? err.message : String(err)),
+      );
     }
   }
   return recorded;

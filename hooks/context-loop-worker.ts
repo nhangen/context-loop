@@ -10,12 +10,23 @@
 // reflects that. The two tiers (advisory / escalated) differ in urgency,
 // not enforcement.
 
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs";
+import { readFileSync, writeFileSync, existsSync, mkdirSync, appendFileSync } from "fs";
 import { join } from "path";
+import { homedir } from "os";
 import {
   openWriterDb, recordFire, detectOutcomes, defaultDbPath,
   type FireRow, type PostFireSnapshot,
 } from "./context-loop-db";
+
+function breadcrumb(msg: string): void {
+  const home = homedir();
+  if (!home) return;
+  const path = join(home, ".claude", "context-loop-errors.log");
+  try {
+    mkdirSync(join(path, ".."), { recursive: true });
+    appendFileSync(path, new Date().toISOString() + " " + msg + "\n");
+  } catch { /* best-effort */ }
+}
 
 const [
   , , transcriptPath, stateDir, sessionId,
@@ -139,7 +150,12 @@ if (!lastUsage) {
 const dbPath = dbPathArg || defaultDbPath();
 const cwd = cwdArg || null;
 let analyticsDb: ReturnType<typeof openWriterDb> | null = null;
-try { analyticsDb = openWriterDb(dbPath); } catch { analyticsDb = null; }
+try {
+  analyticsDb = openWriterDb(dbPath);
+} catch (err) {
+  breadcrumb("openWriterDb failed path=" + dbPath + " err=" + (err instanceof Error ? err.message : String(err)));
+  analyticsDb = null;
+}
 
 if (analyticsDb && sessionId) {
   const inp = lastUsage["input_tokens"] ?? 0;
@@ -152,7 +168,11 @@ if (analyticsDb && sessionId) {
     lastFillPct: (inp + cr + cw) / w,
     windowSize: w,
   };
-  try { detectOutcomes(analyticsDb, sessionId, snap, Math.floor(Date.now() / 1000)); } catch { /* ignore */ }
+  try {
+    detectOutcomes(analyticsDb, sessionId, snap, Math.floor(Date.now() / 1000));
+  } catch (err) {
+    breadcrumb("detectOutcomes threw session=" + sessionId + " err=" + (err instanceof Error ? err.message : String(err)));
+  }
 }
 
 // Mid-chain safety: if the final assistant turn emitted tool_use blocks
@@ -237,24 +257,22 @@ if (analyticsDb && sessionId && lastAssistantUuid) {
     thresholdAdvisory: advisoryAt,
     thresholdEscalated: escalatedAt,
   };
-  try { recordFire(analyticsDb, fireRow); } catch { /* ignore */ }
+  try {
+    const fireId = recordFire(analyticsDb, fireRow);
+    if (fireId === null) {
+      breadcrumb("fires_duplicate session=" + sessionId + " uuid=" + lastAssistantUuid);
+    }
+  } catch (err) {
+    breadcrumb("recordFire threw session=" + sessionId + " err=" + (err instanceof Error ? err.message : String(err)));
+  }
 }
-if (analyticsDb) try { analyticsDb.close(); } catch { /* ignore */ }
-
-// Persist state.
-try { mkdirSync(stateDir, { recursive: true }); } catch { /* ok */ }
-writeFileSync(
-  stateFile,
-  JSON.stringify(
-    {
-      lastFiredUuid: lastAssistantUuid,
-      lastFiredFill: fill,
-      lastFiredAt: new Date().toISOString(),
-    },
-    null,
-    2,
-  ),
-);
+if (analyticsDb) {
+  try {
+    analyticsDb.close();
+  } catch (err) {
+    breadcrumb("db.close threw err=" + (err instanceof Error ? err.message : String(err)));
+  }
+}
 
 const pct = (fill * 100).toFixed(1);
 const head =
@@ -283,3 +301,23 @@ const out = {
 };
 
 console.log(JSON.stringify(out));
+
+// Persist cooldown state AFTER emitting the advisory. State write is
+// best-effort bookkeeping; a failure here must never swallow the user-visible nudge.
+try {
+  mkdirSync(stateDir, { recursive: true });
+  writeFileSync(
+    stateFile,
+    JSON.stringify(
+      {
+        lastFiredUuid: lastAssistantUuid,
+        lastFiredFill: fill,
+        lastFiredAt: new Date().toISOString(),
+      },
+      null,
+      2,
+    ),
+  );
+} catch (err) {
+  breadcrumb("stateFile write failed path=" + stateFile + " err=" + (err instanceof Error ? err.message : String(err)));
+}

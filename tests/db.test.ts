@@ -1,8 +1,9 @@
 import { describe, it, expect, beforeEach } from "bun:test";
 import { Database } from "bun:sqlite";
 import {
-  initSchema, recordFire, detectOutcomes, unresolvedFires,
-  type FireRow, type PostFireSnapshot,
+  initSchema, recordFire, recordOutcome, detectOutcomes, unresolvedFires,
+  assertSchemaCompatible, SCHEMA_VERSION,
+  type FireRow, type PostFireSnapshot, type OutcomeRow,
 } from "../hooks/context-loop-db";
 
 function freshDb(): Database {
@@ -148,5 +149,93 @@ describe("schema versioning", () => {
       "SELECT value FROM meta WHERE key = 'schema_version'"
     ).get();
     expect(row?.value).toBe("1");
+  });
+
+  it("refuses to open a db whose schema_version is newer than this binary", () => {
+    const db = new Database(":memory:");
+    db.run("CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)");
+    db.query("INSERT INTO meta(key, value) VALUES (?, ?)").run(
+      "schema_version", String(SCHEMA_VERSION + 1),
+    );
+    expect(() => assertSchemaCompatible(db)).toThrow(/newer than this binary/);
+  });
+
+  it("re-running initSchema preserves the original schema_version row (no downgrade)", () => {
+    const db = freshDb();
+    initSchema(db);
+    const rows = db.query<{ value: string }, []>(
+      "SELECT value FROM meta WHERE key = 'schema_version'"
+    ).all();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.value).toBe(String(SCHEMA_VERSION));
+  });
+});
+
+describe("schema constraints", () => {
+  it("rejects fire_events.level outside the allowed enum", () => {
+    const db = freshDb();
+    const bogus: FireRow = { ...baseFire, level: "warning" as FireRow["level"] };
+    expect(() => recordFire(db, bogus)).toThrow();
+  });
+
+  it("rejects compaction_outcomes.detection_method outside the allowed enum", () => {
+    const db = freshDb();
+    const id = recordFire(db, baseFire)!;
+    const bogus: OutcomeRow = {
+      fireEventId: id,
+      acted: 1,
+      detectedAt: 2_000,
+      preFillPct: 0.45,
+      postFillPct: 0.10,
+      tokensReclaimed: 60_000,
+      turnsUntilAction: null,
+      detectionMethod: "guessed" as OutcomeRow["detectionMethod"],
+    };
+    expect(() => recordOutcome(db, bogus)).toThrow();
+  });
+
+  it("rejects negative tokens_reclaimed at the storage layer", () => {
+    const db = freshDb();
+    const id = recordFire(db, baseFire)!;
+    expect(() => recordOutcome(db, {
+      fireEventId: id,
+      acted: 1,
+      detectedAt: 2_000,
+      preFillPct: 0.45,
+      postFillPct: 0.50,
+      tokensReclaimed: -100 as unknown as number,
+      turnsUntilAction: null,
+      detectionMethod: "uuid_lost",
+    })).toThrow();
+  });
+});
+
+describe("recordOutcome — surfaces double-detect", () => {
+  it("throws on duplicate insert rather than silently overwriting", () => {
+    const db = freshDb();
+    const id = recordFire(db, baseFire)!;
+    const first: OutcomeRow = {
+      fireEventId: id, acted: 1, detectedAt: 2_000,
+      preFillPct: 0.45, postFillPct: 0.10, tokensReclaimed: 60_000,
+      turnsUntilAction: null, detectionMethod: "uuid_lost",
+    };
+    recordOutcome(db, first);
+    expect(() => recordOutcome(db, { ...first, acted: 0, detectionMethod: "timeout", tokensReclaimed: null })).toThrow();
+  });
+});
+
+describe("detectOutcomes — negative tokensReclaimed coerced to null", () => {
+  it("does not write a negative reclaimed value (post > pre cache-warm case)", () => {
+    const db = freshDb();
+    recordFire(db, baseFire);
+    const snap: PostFireSnapshot = {
+      assistantUuids: ["uuid-NEW"],
+      lastTotalTokens: 120_000,
+      lastFillPct: 0.10,
+      windowSize: 200_000,
+    };
+    const outcomes = detectOutcomes(db, "S1", snap, 2_000);
+    expect(outcomes).toHaveLength(1);
+    expect(outcomes[0]!.tokensReclaimed).toBeNull();
   });
 });

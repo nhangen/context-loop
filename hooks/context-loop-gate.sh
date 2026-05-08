@@ -47,9 +47,11 @@ COOLDOWN_TURNS="${CONTEXT_LOOP_COOLDOWN_TURNS:-15}"
 
 mkdir -p "$STATE_DIR" 2>/dev/null || true
 
-DB_PATH="${CONTEXT_LOOP_DB:-$HOME/.claude/context-loop.db}"
+DB_PATH="${CONTEXT_LOOP_DB_PATH:-$HOME/.claude/context-loop.db}"
+ERROR_LOG="$HOME/.claude/context-loop-errors.log"
+mkdir -p "$(dirname "$ERROR_LOG")" 2>/dev/null || true
 
 "$BUN" "$HOOK_DIR/context-loop-worker.ts" \
   "$JSONL_FILE" "$STATE_DIR" "$SESSION_ID" \
   "$ADVISORY_AT" "$ESCALATED_AT" "$COOLDOWN_TURNS" \
-  "$CWD" "$DB_PATH" 2>/dev/null || echo '{}'
+  "$CWD" "$DB_PATH" 2>>"$ERROR_LOG" || echo '{}'
