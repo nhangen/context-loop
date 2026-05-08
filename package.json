@@ -3,7 +3,8 @@
   "version": "0.1.0",
   "description": "Stop-hook gate that triggers structured summarization + /compact when context fill crosses thresholds.",
   "scripts": {
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "bun test && bash tests/gate.test.sh"
   },
   "devDependencies": {
     "typescript": "^5.4.0",
