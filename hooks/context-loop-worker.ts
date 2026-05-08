@@ -12,9 +12,16 @@
 
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs";
 import { join } from "path";
+import {
+  openWriterDb, recordFire, detectOutcomes, defaultDbPath,
+  type FireRow, type PostFireSnapshot,
+} from "./context-loop-db";
 
-const [, , transcriptPath, stateDir, sessionId, advisoryAtRaw, escalatedAtRaw, cooldownTurnsRaw] =
-  process.argv;
+const [
+  , , transcriptPath, stateDir, sessionId,
+  advisoryAtRaw, escalatedAtRaw, cooldownTurnsRaw,
+  cwdArg, dbPathArg,
+] = process.argv;
 
 if (!transcriptPath || !stateDir) {
   console.log("{}");
@@ -129,6 +136,25 @@ if (!lastUsage) {
   process.exit(0);
 }
 
+const dbPath = dbPathArg || defaultDbPath();
+const cwd = cwdArg || null;
+let analyticsDb: ReturnType<typeof openWriterDb> | null = null;
+try { analyticsDb = openWriterDb(dbPath); } catch { analyticsDb = null; }
+
+if (analyticsDb && sessionId) {
+  const inp = lastUsage["input_tokens"] ?? 0;
+  const cr = lastUsage["cache_read_input_tokens"] ?? 0;
+  const cw = lastUsage["cache_creation_input_tokens"] ?? 0;
+  const w = windowFor(lastModel);
+  const snap: PostFireSnapshot = {
+    assistantUuids,
+    lastTotalTokens: inp + cr + cw,
+    lastFillPct: (inp + cr + cw) / w,
+    windowSize: w,
+  };
+  try { detectOutcomes(analyticsDb, sessionId, snap, Math.floor(Date.now() / 1000)); } catch { /* ignore */ }
+}
+
 // Mid-chain safety: if the final assistant turn emitted tool_use blocks
 // without matching tool_result, we're inside a tool chain — bail.
 // Bypass with CONTEXT_LOOP_FORCE=1 for testing.
@@ -190,9 +216,30 @@ else if (fill >= advisoryAt && !inCooldown) level = "advisory";
 // a recent fire, the agent didn't act on the advisory and needs a louder one.
 
 if (level === "none") {
+  if (analyticsDb) try { analyticsDb.close(); } catch { /* ignore */ }
   console.log("{}");
   process.exit(0);
 }
+
+if (analyticsDb && sessionId && lastAssistantUuid) {
+  const fireRow: FireRow = {
+    sessionId,
+    cwd,
+    firedAt: Math.floor(Date.now() / 1000),
+    level,
+    fillPct: fill,
+    inputTokens,
+    cacheRead,
+    cacheCreate,
+    windowSize: window,
+    model: lastModel || null,
+    assistantUuid: lastAssistantUuid,
+    thresholdAdvisory: advisoryAt,
+    thresholdEscalated: escalatedAt,
+  };
+  try { recordFire(analyticsDb, fireRow); } catch { /* ignore */ }
+}
+if (analyticsDb) try { analyticsDb.close(); } catch { /* ignore */ }
 
 // Persist state.
 try { mkdirSync(stateDir, { recursive: true }); } catch { /* ok */ }
