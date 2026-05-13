@@ -170,6 +170,7 @@ All via env vars on the hook command. Defaults are conservative for a 1M-window 
 | `CONTEXT_LOOP_ESCALATED_AT` | `0.50` | Fill % at which the escalated tier fires (ignores cooldown). |
 | `CONTEXT_LOOP_COOLDOWN_TURNS` | `15` | Assistant turns of cooldown after a fire (advisory tier only). |
 | `CONTEXT_LOOP_STATE_DIR` | `<plugin>/state` | Where per-session state JSON is persisted. |
+| `CONTEXT_LOOP_DB` | `<state>/context-loop.db` | SQLite path for fires + outcomes analytics. |
 | `BUN_PATH` | autodetect | Path to `bun` binary if not on `$PATH`. |
 | `CONTEXT_LOOP_FORCE` | unset | Set to `1` to bypass mid-chain safety (testing only). |
 
@@ -186,6 +187,17 @@ Triggered by the advisory or invoked manually. Lives at `skills/checkpoint/SKILL
 5. **Re-post the brief as a user message** — guarantees it lives in the post-compact transcript regardless of how the summarizer handled the steering hint.
 
 You can also invoke `/checkpoint` manually any time you want to drop below 35% without losing state.
+
+## Savings analytics
+
+Every fire and every post-fire outcome is recorded to a local SQLite DB at `state/context-loop.db` (override with `CONTEXT_LOOP_DB`). Rows include session id, fill %, tier, token counts, and the detected outcome (compact-ran, checkpoint-written, both, neither) on subsequent turns.
+
+| Table | What's in it |
+|---|---|
+| `fires` | One row per advisory/escalated fire: timestamp, level, fill %, input/cache tokens, assistant UUID. |
+| `outcomes` | Post-fire detection: whether `/compact` ran, whether the checkpoint skill wrote a brief, observed token drop. |
+
+Read-only; the plugin never reports upstream. Inspect with any sqlite client; schema lives in `hooks/context-loop-db.ts`.
 
 ## Composition with claude-mem and Obsidian
 
@@ -210,6 +222,7 @@ Three layers, no overlap: claude-mem for long arc, Obsidian for the session note
 cd ~/ML-AI/claude/context-loop
 bun install
 bun run typecheck    # tsc --noEmit
+bun test             # bun test + tests/gate.test.sh
 ```
 
 Symlink the plugin cache to your source for live iteration:
