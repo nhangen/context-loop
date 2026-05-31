@@ -280,8 +280,26 @@ if (analyticsDb) {
 const pct = (fill * 100).toFixed(1);
 const head =
   level === "escalated"
-    ? `⚠️⚠️ context-loop: ESCALATED advisory at ${pct}% fill (${(escalatedAt * 100).toFixed(0)}% threshold). Effectiveness is degraded; checkpoint + compact before continuing.`
-    : `⚠️ context-loop: advisory at ${pct}% fill (${(advisoryAt * 100).toFixed(0)}% threshold). Checkpoint + compact recommended before next major task.`;
+    ? [
+        "```",
+        "╔══════════════════════════════════════════════════════════╗",
+        "║  🔴  C O N T E X T - L O O P   —   E S C A L A T E D  🔴 ║",
+        "╠══════════════════════════════════════════════════════════╣",
+        `║  FILL: ${pct.padStart(5)}%   THRESHOLD: ${(escalatedAt * 100).toFixed(0).padStart(3)}%                       ║`,
+        "║  Effectiveness degraded — checkpoint + compact NOW.      ║",
+        "╚══════════════════════════════════════════════════════════╝",
+        "```",
+      ].join("\n")
+    : [
+        "```",
+        "┌──────────────────────────────────────────────────────────┐",
+        "│  🟡  context-loop  —  advisory                           │",
+        "├──────────────────────────────────────────────────────────┤",
+        `│  fill: ${pct.padStart(5)}%   threshold: ${(advisoryAt * 100).toFixed(0).padStart(3)}%                       │`,
+        "│  Checkpoint + compact recommended before next task.      │",
+        "└──────────────────────────────────────────────────────────┘",
+        "```",
+      ].join("\n");
 
 const body = [
   head,
