@@ -52,24 +52,11 @@ if (stopHookActive) {
   process.exit(0);
 }
 
-// Window resolution: prefer the per-message model field if it carries the
-// 1M marker (future-proof); fall back to settings.json since the current
-// transcript records bare model names without the suffix.
-function windowFromSettings(): number {
-  try {
-    const home = process.env["HOME"] || "";
-    const raw = readFileSync(join(home, ".claude/settings.json"), "utf8");
-    const cfg = JSON.parse(raw) as { model?: string };
-    const m = (cfg.model || "").toLowerCase();
-    if (m.includes("[1m]") || m.endsWith("-1m")) return 1_000_000;
-  } catch { /* fall through */ }
-  return 200_000;
-}
-const SETTINGS_WINDOW = windowFromSettings();
 function windowFor(model: string): number {
   const m = (model || "").toLowerCase();
-  if (m.includes("[1m]") || m.includes("-1m")) return 1_000_000;
-  return SETTINGS_WINDOW;
+  // Opus models have 1M context; everything else is 200K.
+  if (m.includes("opus")) return 1_000_000;
+  return 200_000;
 }
 
 let raw: string;
