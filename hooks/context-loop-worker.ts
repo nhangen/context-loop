@@ -278,41 +278,10 @@ if (analyticsDb) {
 }
 
 const pct = (fill * 100).toFixed(1);
-const head =
+const body =
   level === "escalated"
-    ? [
-        "```",
-        "╔══════════════════════════════════════════════════════════╗",
-        "║  🔴  C O N T E X T - L O O P   —   E S C A L A T E D  🔴 ║",
-        "╠══════════════════════════════════════════════════════════╣",
-        `║  FILL: ${pct.padStart(5)}%   THRESHOLD: ${(escalatedAt * 100).toFixed(0).padStart(3)}%                       ║`,
-        "║  Effectiveness degraded — checkpoint + compact NOW.      ║",
-        "╚══════════════════════════════════════════════════════════╝",
-        "```",
-      ].join("\n")
-    : [
-        "```",
-        "┌──────────────────────────────────────────────────────────┐",
-        "│  🟡  context-loop  —  advisory                           │",
-        "├──────────────────────────────────────────────────────────┤",
-        `│  fill: ${pct.padStart(5)}%   threshold: ${(advisoryAt * 100).toFixed(0).padStart(3)}%                       │`,
-        "│  Checkpoint + compact recommended before next task.      │",
-        "└──────────────────────────────────────────────────────────┘",
-        "```",
-      ].join("\n");
-
-const body = [
-  head,
-  "",
-  "**Action:** invoke the `checkpoint` skill from the context-loop plugin. It will:",
-  "1. Dispatch a clean-context subagent that produces a verbatim Live State brief from the transcript.",
-  "2. Append the brief to today's Obsidian daily note and to `state/checkpoints/` for durable recall.",
-  "3. Run `/compact` so the live conversation sheds noise; the brief is then re-stated as a user message so the post-compact agent sees it intact.",
-  "",
-  level === "escalated"
-    ? "Do this now. claude-mem and Obsidian preserve everything; the live conversation does not need to."
-    : "Skip only if you're mid-task and finishing in 1–2 turns; otherwise act now.",
-].join("\n");
+    ? `context-loop: context at ${pct}% — run /compact`
+    : `context-loop: context at ${pct}% — consider /compact before next task`;
 
 const out = {
   hookSpecificOutput: {
