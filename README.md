@@ -73,7 +73,9 @@ If the final assistant turn emitted `tool_use` blocks without matching `tool_res
 
 ### Window detection
 
-Reads the per-message `model` field for a `[1m]` marker first, then falls back to `~/.claude/settings.json` for the user's configured model. Multi-session safe: a 200K-window session won't be evaluated against a 1M divisor.
+The divisor is a **dynamic variable**. `CONTEXT_LOOP_WINDOW`, if set to a positive integer, is used verbatim — this is the authoritative override for sessions whose real window the hook can't infer (1M-beta `[1m]`, fast-mode, model aliases, future models). With no override, it falls back to a model-name heuristic: `opus` → 1,000,000, everything else → 200,000.
+
+The heuristic is a guess, not ground truth — the transcript's `model` field carries no window size, and a misjudged divisor produces nonsense fill (e.g. a too-small divisor reporting >100%). When in doubt, set `CONTEXT_LOOP_WINDOW` explicitly.
 
 ### The subagent doesn't `Read` the JSONL
 
@@ -169,6 +171,7 @@ All via env vars on the hook command. Defaults are conservative for a 1M-window 
 | `CONTEXT_LOOP_ADVISORY_AT` | `0.35` | Fill % at which the advisory tier fires (subject to cooldown). |
 | `CONTEXT_LOOP_ESCALATED_AT` | `0.50` | Fill % at which the escalated tier fires (ignores cooldown). |
 | `CONTEXT_LOOP_COOLDOWN_TURNS` | `15` | Assistant turns of cooldown after a fire (advisory tier only). |
+| `CONTEXT_LOOP_WINDOW` | unset | Context-window size (tokens) used as the fill divisor. Overrides the model-name heuristic when set. |
 | `CONTEXT_LOOP_STATE_DIR` | `<plugin>/state` | Where per-session state JSON is persisted. |
 | `CONTEXT_LOOP_DB` | `<state>/context-loop.db` | SQLite path for fires + outcomes analytics. |
 | `BUN_PATH` | autodetect | Path to `bun` binary if not on `$PATH`. |

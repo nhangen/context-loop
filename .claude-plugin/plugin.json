@@ -1,6 +1,6 @@
 {
   "name": "context-loop",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Auto-summarize and compact when context fill crosses thresholds. Keeps live conversation under 40% by leaning on claude-mem + Obsidian as the durable layer.",
   "author": {
     "name": "nhangen"

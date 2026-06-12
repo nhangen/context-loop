@@ -53,6 +53,8 @@ if (stopHookActive) {
 }
 
 function windowFor(model: string): number {
+  const override = parseInt(process.env["CONTEXT_LOOP_WINDOW"] ?? "", 10);
+  if (Number.isFinite(override) && override > 0) return override;
   const m = (model || "").toLowerCase();
   // Opus models have 1M context; everything else is 200K.
   if (m.includes("opus")) return 1_000_000;
