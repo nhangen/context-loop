@@ -1,25 +1,20 @@
 # context-loop
 
-**Auto-checkpoint and `/compact` your Claude Code session before context fill kills response quality.**
+**Nudge `/compact` on your Claude Code session before context fill kills response quality.**
 
-Once a Claude Code conversation crosses ~35–40% of the model's context window, response quality, tool-call accuracy, and per-token cost all degrade. `context-loop` watches the live transcript on every assistant turn and, when fill crosses a threshold, nudges the agent to:
+Once a Claude Code conversation crosses ~35–40% of the model's context window, response quality, tool-call accuracy, and per-token cost all degrade. `context-loop` watches the live transcript on every assistant `Stop`, computes fill % from the last `usage` block, and when fill crosses a threshold injects an advisory `additionalContext` line nudging the agent to run `/compact` on its next turn. Every fire and the compaction that follows are recorded to a local SQLite DB for savings analytics.
 
-1. dispatch a clean-context summarizer subagent that produces a structured **Live State** brief,
-2. write the brief to durable storage (Obsidian + a checkpoint file claude-mem can pick up),
-3. run `/compact`, and
-4. re-post the brief as a user message so the post-compact agent sees it intact.
-
-The live conversation stays under the degradation cliff. Nothing important is lost — claude-mem and Obsidian hold the long arc; the brief carries the active task across compaction.
+That's the whole mechanism: a fill-aware, cooldown-gated, mid-chain-safe reminder to compact. It is **advisory only** — a Stop hook cannot force the agent to act (see `~/.claude/rules/claude-code-hook-output-semantics.md`). Durable state across the compaction boundary is left to the tools that already do it well — claude-mem (cross-session observations) and the Obsidian plugin (session notes) — which `context-loop` does not write to; it only keeps the *live* conversation under the cliff.
 
 ## Why
 
 Claude Code has built-in auto-compact at ~95% fill, but by then quality is already wrecked. There is no "keep me below 40% perpetually" mechanism. Manual `/compact` works but you have to remember to run it, and you have to trust the summary to preserve the file paths, branches, and error strings you were actually working on.
 
-`context-loop` makes the boundary automatic and the summary structured. It composes with the durable layer you (probably) already have:
+`context-loop` makes the *timing* automatic — it reminds you to compact at the right moment instead of at 95% when quality is already gone. It sits alongside the durable layer you (probably) already have, without writing to it:
 
-- **claude-mem** stores cross-session observations.
-- **Obsidian** stores session notes and daily logs.
-- **context-loop** keeps the *live* conversation under the cliff by handing off cleanly to those two.
+- **claude-mem** stores cross-session observations (its own Stop summarizer).
+- **Obsidian** stores session notes and daily logs (its own session-end save).
+- **context-loop** keeps the *live* conversation under the cliff by nudging `/compact`; the other two independently capture the long arc.
 
 ## How it works
 
@@ -32,26 +27,18 @@ Claude Code ──┤                                        │
               │  bun worker reads transcript JSONL,    │
               │  computes fill % from last `usage`     │
               │  block, applies cooldown + mid-chain   │
-              │  safety, writes state.                 │
+              │  safety, writes state + records the    │
+              │  fire to SQLite.                       │
               │      │                                 │
               │      ▼ (if threshold crossed)          │
-              │  emit additionalContext nudging the    │
-              │  agent to invoke the `checkpoint`      │
-              │  skill on its next turn.               │
+              │  emit additionalContext:               │
+              │  "context at N% — run /compact"        │
               └────────────────────────────────────────┘
                                 │
                                 ▼
-              ┌─────────── checkpoint skill ───────────┐
-              │  1. dispatch clean-context subagent    │
-              │  2. subagent runs `jq` projection on   │
-              │     the transcript, writes Live State  │
-              │  3. main agent appends brief to        │
-              │     today's Obsidian daily note +      │
-              │     state/checkpoints/ for claude-mem  │
-              │  4. /compact (with optional steering)  │
-              │  5. re-post the brief as a user        │
-              │     message so it survives compaction  │
-              └────────────────────────────────────────┘
+              agent runs /compact on its next turn;
+              the next Stop detects the token drop and
+              records the compaction outcome.
 ```
 
 ### Trigger: Stop hook, not PostToolUse
@@ -77,18 +64,14 @@ The divisor is a **dynamic variable**. `CONTEXT_LOOP_WINDOW`, if set to a positi
 
 The heuristic is a guess, not ground truth — the transcript's `model` field carries no window size, and a misjudged divisor produces nonsense fill (e.g. a too-small divisor reporting >100%). When in doubt, set `CONTEXT_LOOP_WINDOW` explicitly.
 
-### The subagent doesn't `Read` the JSONL
-
-A late-session transcript is megabytes of mostly tool_result blobs. The subagent prompt mandates a `jq` projection that strips usage metadata and truncates inputs/results to ≤300 chars before any read — see `~/.claude/rules/no-cat-subagent-jsonl.md`.
-
 ### `/compact` is best-effort
 
-Claude Code's `/compact` accepts a steering hint, but the hint is fed to the summarizer as guidance — it is not verbatim preservation. The brief is therefore **also re-posted as a user message after compact**, so it lives in the post-compact transcript regardless of how the summarizer handled the steering text.
+Claude Code's `/compact` summarizes the transcript; it is not verbatim preservation, and `context-loop` does not try to make it one. If you need the active task's file paths, branches, and error strings to survive verbatim, capture them durably (claude-mem / an Obsidian session note) before compacting — `context-loop`'s job is the *timing* of the nudge, not the summary's fidelity.
 
 ## Prerequisites
 
 - [Bun](https://bun.sh) ≥ 1.1.0 (for the worker)
-- `jq` (for the gate's transcript-path extraction and the subagent's projection)
+- `jq` (for the gate's transcript-path extraction)
 - A Claude Code installation
 - Optional but recommended: [`obsidian` plugin](https://github.com/nhangen/claude-obsidian-plugin) and [`claude-mem`](https://github.com/thedotmack/claude-mem) for durable storage
 
@@ -123,7 +106,7 @@ Then symlink into the plugin cache so the version-resilient delegator finds it:
 
 ```bash
 mkdir -p ~/.claude/plugins/cache/nhangen-tools/context-loop
-ln -s ~/ML-AI/claude/context-loop ~/.claude/plugins/cache/nhangen-tools/context-loop/0.1.0
+ln -s ~/ML-AI/claude/context-loop ~/.claude/plugins/cache/nhangen-tools/context-loop/0.1.2
 ```
 
 ### Wire up the Stop hook
@@ -181,40 +164,34 @@ The gate also honors the legacy `CONTEXT_LOOP_BLOCK_AT` for backwards compat —
 
 ## The `checkpoint` skill
 
-Triggered by the advisory or invoked manually. Lives at `skills/checkpoint/SKILL.md`. Run order:
+Lives at `skills/checkpoint/SKILL.md`. It is deliberately a one-liner: **run `/compact`**. `/compact` handles state preservation on its own, so the skill exists only to give the advisory a concrete action and a manual entry point — invoke `/checkpoint` any time you want to compact without waiting for a fire.
 
-1. **Dispatch summarizer subagent** — `general-purpose`, with the prompt from `subagent-prompt.md` and the absolute path of the live transcript.
-2. **Receive the structured brief** — `## Goal`, `## Live State` (verbatim file paths / branches / PRs / errors), `## Decisions`, `## Loose ends`, `## Next step`.
-3. **Write to durable storage** — append to today's Obsidian daily note under a `## Checkpoint <HH:MM>` heading; save a copy at `state/checkpoints/<session_id>-<ISO>.md`.
-4. **Run `/compact`** with an optional steering hint.
-5. **Re-post the brief as a user message** — guarantees it lives in the post-compact transcript regardless of how the summarizer handled the steering hint.
-
-You can also invoke `/checkpoint` manually any time you want to drop below 35% without losing state.
+> Earlier versions dispatched a summarizer subagent and wrote a structured brief to Obsidian + a checkpoint file. That was stripped to `/compact`-only (commit `f874757`) — the subagent/brief machinery added complexity for marginal gain over `/compact` plus the durable layer that claude-mem and Obsidian already provide.
 
 ## Savings analytics
 
-Every fire and every post-fire outcome is recorded to a local SQLite DB at `state/context-loop.db` (override with `CONTEXT_LOOP_DB`). Rows include session id, fill %, tier, token counts, and the detected outcome (compact-ran, checkpoint-written, both, neither) on subsequent turns.
+Every fire and every post-fire outcome is recorded to a local SQLite DB at `state/context-loop.db` (override with `CONTEXT_LOOP_DB`). Rows include session id, fill %, tier, token counts, and whether a compaction was detected on subsequent turns.
 
 | Table | What's in it |
 |---|---|
-| `fires` | One row per advisory/escalated fire: timestamp, level, fill %, input/cache tokens, assistant UUID. |
-| `outcomes` | Post-fire detection: whether `/compact` ran, whether the checkpoint skill wrote a brief, observed token drop. |
+| `fire_events` | One row per advisory/escalated fire: timestamp, level, fill %, input/cache tokens, assistant UUID. |
+| `compaction_outcomes` | Post-fire detection: whether `/compact` ran (observed token drop) on the turns after a fire, keyed to the fire event. |
 
 Read-only; the plugin never reports upstream. Inspect with any sqlite client; schema lives in `hooks/context-loop-db.ts`.
 
 ## Composition with claude-mem and Obsidian
 
-`context-loop` is the **mid-session compaction layer**. The other two layers are:
+`context-loop` is the **mid-session compaction-timing layer**. It does not write to the other two — they capture durable state on their own schedule:
 
-- **claude-mem** — runs its own Stop summarizer that captures observations into a cross-session DB. `context-loop` writes checkpoint files to a path claude-mem already scans, so its observations include each compaction boundary.
-- **Obsidian** — receives the brief as an appended section on the daily note. The session-end save (via the [obsidian plugin](https://github.com/nhangen/claude-obsidian-plugin)) then captures the full session arc on top.
+- **claude-mem** — runs its own Stop summarizer that captures observations into a cross-session DB.
+- **Obsidian** — the session-end save (via the [obsidian plugin](https://github.com/nhangen/claude-obsidian-plugin)) captures the full session arc.
 
-Three layers, no overlap: claude-mem for long arc, Obsidian for the session note, context-loop for the active task across compactions.
+Three independent layers, no overlap: claude-mem for the long arc, Obsidian for the session note, context-loop for keeping the live conversation under the degradation cliff.
 
 ## Caveats
 
 - **Advisory only.** Stop-hook `additionalContext` cannot prevent the agent from continuing. The plugin nudges; it doesn't enforce. Copy reflects this.
-- **`/compact` is best-effort.** Steering hints guide the summarizer; they don't pin verbatim. The post-compact user-message re-post is the actual guarantee.
+- **`/compact` is best-effort.** It summarizes, it doesn't pin verbatim. `context-loop` controls *when* you compact, not what survives — capture anything load-bearing durably before the boundary.
 - **Bun required.** The worker is TypeScript executed via `bun`. No Node.js fallback — adds dependencies the user (probably) doesn't want.
 - **Single-machine state.** State files are local. Run on multiple machines and each maintains its own cooldown.
 - **No mid-chain firing.** The gate is silent inside any unresolved tool chain. If your turns are huge multi-tool chains, the threshold may be exceeded for one or two long turns before the next clean Stop boundary.
@@ -232,7 +209,7 @@ Symlink the plugin cache to your source for live iteration:
 
 ```bash
 ln -sfn ~/ML-AI/claude/context-loop \
-  ~/.claude/plugins/cache/nhangen-tools/context-loop/0.1.0
+  ~/.claude/plugins/cache/nhangen-tools/context-loop/0.1.2
 ```
 
 Test the worker against a real transcript:
