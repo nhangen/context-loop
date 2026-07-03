@@ -56,8 +56,12 @@ function windowFor(model: string): number {
   const override = parseInt(process.env["CONTEXT_LOOP_WINDOW"] ?? "", 10);
   if (Number.isFinite(override) && override > 0) return override;
   const m = (model || "").toLowerCase();
-  // Opus models have 1M context; everything else is 200K.
-  if (m.includes("opus")) return 1_000_000;
+  // 1M-context families: Opus (4.5+), Fable 5, Mythos 5, Sonnet 5, and
+  // Sonnet 4.6. Haiku (200K) and older Sonnets (4.5 and earlier, 200K) fall
+  // through to the default. Name-substring matching can't tell Sonnet 5 /
+  // 4.6 (1M) from Sonnet 4.5 (200K), so `sonnet` is intentionally NOT matched
+  // here — set CONTEXT_LOOP_WINDOW explicitly for a 1M Sonnet.
+  if (m.includes("opus") || m.includes("fable") || m.includes("mythos")) return 1_000_000;
   return 200_000;
 }
 

@@ -60,7 +60,7 @@ If the final assistant turn emitted `tool_use` blocks without matching `tool_res
 
 ### Window detection
 
-The divisor is a **dynamic variable**. `CONTEXT_LOOP_WINDOW`, if set to a positive integer, is used verbatim — this is the authoritative override for sessions whose real window the hook can't infer (1M-beta `[1m]`, fast-mode, model aliases, future models). With no override, it falls back to a model-name heuristic: `opus` → 1,000,000, everything else → 200,000.
+The divisor is a **dynamic variable**. `CONTEXT_LOOP_WINDOW`, if set to a positive integer, is used verbatim — this is the authoritative override for sessions whose real window the hook can't infer (1M-beta `[1m]`, fast-mode, model aliases, future models). With no override, it falls back to a model-name heuristic: `opus`, `fable`, and `mythos` → 1,000,000; everything else → 200,000. (Sonnet is deliberately not matched — Sonnet 5 / 4.6 are 1M but Sonnet 4.5 and earlier are 200K, and a name substring can't tell them apart; set `CONTEXT_LOOP_WINDOW` for a 1M Sonnet.)
 
 The heuristic is a guess, not ground truth — the transcript's `model` field carries no window size, and a misjudged divisor produces nonsense fill (e.g. a too-small divisor reporting >100%). When in doubt, set `CONTEXT_LOOP_WINDOW` explicitly.
 
