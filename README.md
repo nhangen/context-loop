@@ -106,7 +106,7 @@ Then symlink into the plugin cache so the version-resilient delegator finds it:
 
 ```bash
 mkdir -p ~/.claude/plugins/cache/nhangen-tools/context-loop
-ln -s ~/ML-AI/claude/context-loop ~/.claude/plugins/cache/nhangen-tools/context-loop/0.1.2
+ln -s ~/ML-AI/claude/context-loop ~/.claude/plugins/cache/nhangen-tools/context-loop/0.1.3
 ```
 
 ### Wire up the Stop hook
@@ -155,8 +155,8 @@ All via env vars on the hook command. Defaults are conservative for a 1M-window 
 | `CONTEXT_LOOP_ESCALATED_AT` | `0.50` | Fill % at which the escalated tier fires (ignores cooldown). |
 | `CONTEXT_LOOP_COOLDOWN_TURNS` | `15` | Assistant turns of cooldown after a fire (advisory tier only). |
 | `CONTEXT_LOOP_WINDOW` | unset | Context-window size (tokens) used as the fill divisor. Overrides the model-name heuristic when set. |
-| `CONTEXT_LOOP_STATE_DIR` | `<plugin>/state` | Where per-session state JSON is persisted. |
-| `CONTEXT_LOOP_DB` | `<state>/context-loop.db` | SQLite path for fires + outcomes analytics. |
+| `CONTEXT_LOOP_STATE_DIR` | `$HOME/.claude/state/context-loop` | Where per-session state JSON is persisted. |
+| `CONTEXT_LOOP_DB_PATH` | `$HOME/.claude/context-loop.db` | SQLite path for fires + outcomes analytics. |
 | `BUN_PATH` | autodetect | Path to `bun` binary if not on `$PATH`. |
 | `CONTEXT_LOOP_FORCE` | unset | Set to `1` to bypass mid-chain safety (testing only). |
 
@@ -170,7 +170,7 @@ Lives at `skills/checkpoint/SKILL.md`. It is deliberately a one-liner: **run `/c
 
 ## Savings analytics
 
-Every fire and every post-fire outcome is recorded to a local SQLite DB at `state/context-loop.db` (override with `CONTEXT_LOOP_DB`). Rows include session id, fill %, tier, token counts, and whether a compaction was detected on subsequent turns.
+Every fire and every post-fire outcome is recorded to a local SQLite DB at `$HOME/.claude/context-loop.db` (override with `CONTEXT_LOOP_DB_PATH`). Rows include session id, fill %, tier, token counts, and whether a compaction was detected on subsequent turns.
 
 | Table | What's in it |
 |---|---|
@@ -209,7 +209,7 @@ Symlink the plugin cache to your source for live iteration:
 
 ```bash
 ln -sfn ~/ML-AI/claude/context-loop \
-  ~/.claude/plugins/cache/nhangen-tools/context-loop/0.1.2
+  ~/.claude/plugins/cache/nhangen-tools/context-loop/0.1.3
 ```
 
 Test the worker against a real transcript:
