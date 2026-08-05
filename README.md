@@ -4,7 +4,7 @@
 
 Once a Claude Code conversation crosses ~35–40% of the model's context window, response quality, tool-call accuracy, and per-token cost all degrade. `context-loop` watches the live transcript on every assistant `Stop`, computes fill % from the last `usage` block, and when fill crosses a threshold injects an advisory `additionalContext` line nudging the agent to run `/compact` on its next turn. Every fire and the compaction that follows are recorded to a local SQLite DB for savings analytics.
 
-That's the whole mechanism: a fill-aware, cooldown-gated, mid-chain-safe reminder to compact. It is **advisory only** — a Stop hook cannot force the agent to act (see `~/.claude/rules/claude-code-hook-output-semantics.md`). Durable state across the compaction boundary is left to the tools that already do it well — claude-mem (cross-session observations) and the Obsidian plugin (session notes) — which `context-loop` does not write to; it only keeps the *live* conversation under the cliff.
+That's the whole mechanism: a fill-aware, cooldown-gated, mid-chain-safe, compact-boundary-aware reminder to compact. (Fill is measured only from assistant turns *after* the newest compact summary — the `/compact` summarization call itself ingests the whole pre-compact window, so counting it would nag you to compact the size you just compacted away.) It is **advisory only** — a Stop hook cannot force the agent to act (see `~/.claude/rules/claude-code-hook-output-semantics.md`). Durable state across the compaction boundary is left to the tools that already do it well — claude-mem (cross-session observations) and the Obsidian plugin (session notes) — which `context-loop` does not write to; it only keeps the *live* conversation under the cliff.
 
 ## Why
 
