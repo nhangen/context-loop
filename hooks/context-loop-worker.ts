@@ -93,7 +93,20 @@ for (const line of lines) {
   }
 
   if (obj["type"] === "user") {
-    if (obj["isCompactSummary"] === true) hasCompactSummary = true;
+    if (obj["isCompactSummary"] === true) {
+      hasCompactSummary = true;
+      // A /compact summarization call ingests the entire pre-compact window,
+      // so the assistant turns before this boundary report a stale, huge fill.
+      // Measure only from turns AFTER the newest compact summary. If none
+      // follow yet (compact just happened), lastUsage stays null and the
+      // `if (!lastUsage)` guard below skips the nag instead of echoing the
+      // size we just compacted away.
+      lastUsage = null;
+      lastModel = "";
+      assistantTurns = 0;
+      assistantUuids.length = 0;
+      lastAssistantUuid = "";
+    }
     const content = (obj["message"] as Record<string, unknown>)?.["content"];
     if (Array.isArray(content)) {
       for (const block of content as Array<Record<string, unknown>>) {
