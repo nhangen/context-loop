@@ -68,6 +68,8 @@ PRECOMPACT='{"type":"assistant","uuid":"a1","message":{"model":"claude-opus-4-8"
 COMPACT='{"type":"user","isCompactSummary":true,"message":{"content":[{"type":"text","text":"summary"}]}}'
 POSTSMALL='{"type":"assistant","uuid":"a2","message":{"model":"claude-opus-4-8","usage":{"input_tokens":1,"cache_read_input_tokens":5000,"cache_creation_input_tokens":0,"output_tokens":50},"content":[{"type":"text","text":"post"}]}}'
 
+COMPACT_SYS='{"type":"system","subtype":"compact_boundary","content":"Conversation compacted"}'
+
 run_gate() {  # $1 = transcript file
   printf '{"transcript_path":"%s","session_id":"cbtest"}' "$1" | "$GATE" 2>/dev/null
 }
@@ -78,9 +80,21 @@ printf '%s\n%s\n' "$PRECOMPACT" "$COMPACT" > "$TF"
 out=$(run_gate "$TF")
 check "  output {}"  "$out"  "{}"
 
+echo "test: system compact_boundary is the newest entry -> no nag"
+TF="$TMP/t_compact_sys_last.jsonl"
+printf '%s\n%s\n' "$PRECOMPACT" "$COMPACT_SYS" > "$TF"
+out=$(run_gate "$TF")
+check "  output {}"  "$out"  "{}"
+
 echo "test: small assistant turn AFTER compact -> no nag (fill from post-compact turn)"
 TF="$TMP/t_post_small.jsonl"
 printf '%s\n%s\n%s\n' "$PRECOMPACT" "$COMPACT" "$POSTSMALL" > "$TF"
+out=$(run_gate "$TF")
+check "  output {}"  "$out"  "{}"
+
+echo "test: small assistant turn AFTER system compact_boundary -> no nag"
+TF="$TMP/t_post_small_sys.jsonl"
+printf '%s\n%s\n%s\n' "$PRECOMPACT" "$COMPACT_SYS" "$POSTSMALL" > "$TF"
 out=$(run_gate "$TF")
 check "  output {}"  "$out"  "{}"
 
