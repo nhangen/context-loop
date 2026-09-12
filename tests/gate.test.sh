@@ -76,6 +76,7 @@ POSTSMALL='{"type":"assistant","uuid":"a2","message":{"model":"claude-opus-4-8",
 # subtype, content); the omitted ones are inert here but are what a reader
 # comparing this against a live transcript will see.
 COMPACT_SYS='{"type":"system","subtype":"compact_boundary","content":"Conversation compacted"}'
+NON_USER_COMPACT_FLAG='{"type":"system","subtype":"status","isCompactSummary":true,"content":"Status update"}'
 
 # Mid-range post-boundary turn: fill 0.40 -> above advisory (0.35), below
 # escalated (0.50), so the cooldown branch actually decides the outcome.
@@ -127,6 +128,16 @@ printf '{"lastFiredUuid":"a1","lastFiredFill":0.8,"lastFiredAt":"2026-01-01T00:0
 echo "test: (control) mid-fill turn within cooldown of a prior fire -> no nag"
 TF="$TMP/t_cooldown_control.jsonl"
 printf '%s\n%s\n' "$PRECOMPACT" "$POSTMID" > "$TF"
+out=$(run_gate_session "$TF" "cbcool")
+check "  output {}"  "$out"  "{}"
+
+# Re-seed: a firing run rewrites the state file.
+printf '{"lastFiredUuid":"a1","lastFiredFill":0.8,"lastFiredAt":"2026-01-01T00:00:00Z"}' \
+  > "$CONTEXT_LOOP_STATE_DIR/cbcool.json"
+
+echo "test: non-user compact flag without compact_boundary does not reset cooldown state"
+TF="$TMP/t_non_user_compact_flag.jsonl"
+printf '%s\n%s\n%s\n' "$PRECOMPACT" "$NON_USER_COMPACT_FLAG" "$POSTMID" > "$TF"
 out=$(run_gate_session "$TF" "cbcool")
 check "  output {}"  "$out"  "{}"
 

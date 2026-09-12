@@ -93,7 +93,7 @@ for (const line of lines) {
   }
 
   const isCompactBoundary =
-    obj["isCompactSummary"] === true ||
+    (obj["type"] === "user" && obj["isCompactSummary"] === true) ||
     (obj["type"] === "system" && obj["subtype"] === "compact_boundary");
 
   if (isCompactBoundary) {
