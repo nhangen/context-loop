@@ -17,6 +17,7 @@ import {
   openWriterDb, recordFire, detectOutcomes, defaultDbPath,
   type FireRow, type PostFireSnapshot,
 } from "./context-loop-db";
+import { windowFor } from "./context-loop-window";
 
 function breadcrumb(msg: string): void {
   const home = homedir();
@@ -50,19 +51,6 @@ const stopHookActive = process.env["CONTEXT_LOOP_STOP_HOOK_ACTIVE"] === "1";
 if (stopHookActive) {
   console.log("{}");
   process.exit(0);
-}
-
-function windowFor(model: string): number {
-  const override = parseInt(process.env["CONTEXT_LOOP_WINDOW"] ?? "", 10);
-  if (Number.isFinite(override) && override > 0) return override;
-  const m = (model || "").toLowerCase();
-  // 1M-context families: Opus (4.5+), Fable 5, Mythos 5, Sonnet 5, and
-  // Sonnet 4.6. Haiku (200K) and older Sonnets (4.5 and earlier, 200K) fall
-  // through to the default. Name-substring matching can't tell Sonnet 5 /
-  // 4.6 (1M) from Sonnet 4.5 (200K), so `sonnet` is intentionally NOT matched
-  // here — set CONTEXT_LOOP_WINDOW explicitly for a 1M Sonnet.
-  if (m.includes("opus") || m.includes("fable") || m.includes("mythos")) return 1_000_000;
-  return 200_000;
 }
 
 let raw: string;
@@ -174,7 +162,7 @@ if (analyticsDb && sessionId) {
   const inp = lastUsage["input_tokens"] ?? 0;
   const cr = lastUsage["cache_read_input_tokens"] ?? 0;
   const cw = lastUsage["cache_creation_input_tokens"] ?? 0;
-  const w = windowFor(lastModel);
+  const w = windowFor(lastModel, process.env["CONTEXT_LOOP_WINDOW"]);
   const snap: PostFireSnapshot = {
     assistantUuids,
     lastTotalTokens: inp + cr + cw,
@@ -201,7 +189,7 @@ if (lastAssistantHadToolUse && process.env["CONTEXT_LOOP_FORCE"] !== "1") {
   }
 }
 
-const window = windowFor(lastModel);
+const window = windowFor(lastModel, process.env["CONTEXT_LOOP_WINDOW"]);
 const inputTokens = lastUsage["input_tokens"] ?? 0;
 const cacheRead = lastUsage["cache_read_input_tokens"] ?? 0;
 const cacheCreate = lastUsage["cache_creation_input_tokens"] ?? 0;
