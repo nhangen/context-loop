@@ -64,8 +64,8 @@ describe("clampFill", () => {
     expect(clampFill(99)).toBe(1);
   });
 
-  it("treats non-finite junk as 0", () => {
-    expect(clampFill(Infinity)).toBe(0);
+  it("treats +Infinity as over the ceiling", () => {
+    expect(clampFill(Infinity)).toBe(1);
   });
 
   it("passes sub-cap fractions through unchanged", () => {
@@ -78,8 +78,9 @@ describe("clampFill", () => {
     expect(clampFill(1)).toBe(1);
   });
 
-  it("floors negatives and NaN at 0", () => {
+  it("floors negatives, -Infinity and NaN at 0", () => {
     expect(clampFill(-0.5)).toBe(0);
+    expect(clampFill(-Infinity)).toBe(0);
     expect(clampFill(NaN)).toBe(0);
   });
 });
