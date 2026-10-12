@@ -17,7 +17,7 @@ import {
   openWriterDb, recordFire, detectOutcomes, defaultDbPath,
   type FireRow, type PostFireSnapshot,
 } from "./context-loop-db";
-import { windowFor } from "./context-loop-window";
+import { windowFor, clampFill } from "./context-loop-window";
 
 function breadcrumb(msg: string): void {
   const home = homedir();
@@ -166,7 +166,7 @@ if (analyticsDb && sessionId) {
   const snap: PostFireSnapshot = {
     assistantUuids,
     lastTotalTokens: inp + cr + cw,
-    lastFillPct: (inp + cr + cw) / w,
+    lastFillPct: clampFill((inp + cr + cw) / w),
     windowSize: w,
     hasCompactSummary,
   };
@@ -193,7 +193,11 @@ const window = windowFor(lastModel, process.env["CONTEXT_LOOP_WINDOW"]);
 const inputTokens = lastUsage["input_tokens"] ?? 0;
 const cacheRead = lastUsage["cache_read_input_tokens"] ?? 0;
 const cacheCreate = lastUsage["cache_creation_input_tokens"] ?? 0;
-const fill = (inputTokens + cacheRead + cacheCreate) / window;
+const rawFill = (inputTokens + cacheRead + cacheCreate) / window;
+const fill = clampFill(rawFill);
+if (rawFill > 1) {
+  breadcrumb("fill over window raw=" + rawFill.toFixed(3) + " window=" + window + " model=" + (lastModel || "unknown"));
+}
 
 // State persists by last-fired assistant UUID, not turn count. Turn counts
 // reset after `/compact` rewrites the transcript; UUIDs survive (or, if

@@ -161,6 +161,16 @@ out=$(run_gate "$TF")
 nag="no"; case "$out" in *"context at"*) nag="yes";; esac
 check "  nags"  "$nag"  "yes"
 
+echo "test: usage above the window reports 100.0%, never more"
+OVERWINDOW='{"type":"assistant","uuid":"a1","message":{"model":"claude-opus-4-8","usage":{"input_tokens":1,"cache_read_input_tokens":125000,"cache_creation_input_tokens":0,"output_tokens":100},"content":[{"type":"text","text":"big"}]}}'
+TF="$TMP/t_overwindow.jsonl"
+printf '%s\n' "$OVERWINDOW" > "$TF"
+out=$(run_gate "$TF")
+capped="no"; case "$out" in *"context at 100.0%"*) capped="yes";; esac
+check "  reports 100.0%"  "$capped"  "yes"
+over="no"; case "$out" in *"125."*) over="yes";; esac
+check "  does not report 125%"  "$over"  "no"
+
 unset CONTEXT_LOOP_WINDOW
 # ---------------------------------------------------------------------------
 

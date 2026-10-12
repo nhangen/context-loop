@@ -15,3 +15,12 @@ export function windowFor(model: string, envOverride?: string): number {
   if (m.includes("sonnet-5") || m.includes("sonnet-4-6")) return 1_000_000;
   return 200_000;
 }
+
+// Usage can exceed the assumed window (misdetected window, provider figure
+// above our assumption, unrecognized compaction shape). Fill that gets
+// displayed or thresholded goes through here; raw token sums stay available
+// for anything that compares usage over time.
+export function clampFill(fraction: number): number {
+  if (Number.isNaN(fraction) || fraction < 0) return 0;
+  return Math.min(1, fraction);
+}

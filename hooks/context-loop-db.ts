@@ -224,7 +224,10 @@ export function detectOutcomes(
       const postTokens = snap.lastTotalTokens;
       const rawReclaimed = preTokens - postTokens;
       const tokensReclaimed = rawReclaimed >= 0 ? rawReclaimed : null;
-      const fillDrop = fire.fillPct - snap.lastFillPct;
+      // fillPct is clamped at 1.0 for display; corroboration needs the raw ratio.
+      const rawPreFill = fire.windowSize > 0 ? preTokens / fire.windowSize : fire.fillPct;
+      const rawPostFill = snap.windowSize > 0 ? postTokens / snap.windowSize : snap.lastFillPct;
+      const fillDrop = rawPreFill - rawPostFill;
 
       let outcome: OutcomeRow | null = null;
 

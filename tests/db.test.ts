@@ -108,6 +108,28 @@ describe("detectOutcomes — fill-drop corroboration", () => {
     expect(outcomes[0]!.turnsUntilAction).toBe(1);
   });
 
+  it("corroborates on raw usage when the stored fire fill was clamped at 1.0", () => {
+    const db = freshDb();
+    recordFire(db, {
+      ...baseFire,
+      fillPct: 1,
+      inputTokens: 0,
+      cacheRead: 250_000,
+      cacheCreate: 0,
+      windowSize: 200_000,
+    });
+    const snap: PostFireSnapshot = {
+      assistantUuids: ["uuid-A", "uuid-B"],
+      lastTotalTokens: 150_000,
+      lastFillPct: 0.75,
+      windowSize: 200_000,
+      hasCompactSummary: false,
+    };
+    const outcomes = detectOutcomes(db, "S1", snap, 2_000);
+    expect(outcomes).toHaveLength(1);
+    expect(outcomes[0]!.detectionMethod).toBe("fill_drop_corroborated");
+  });
+
   it("does not record when fill drop is below threshold and not yet timed out", () => {
     const db = freshDb();
     recordFire(db, baseFire);
