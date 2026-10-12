@@ -9,9 +9,8 @@ export function windowFor(model: string, envOverride?: string): number {
   if (Number.isFinite(override) && override > 0) return override;
   const m = (model || "").toLowerCase();
   // 1M-context families: Opus (4.5+), Fable 5, Mythos 5, Sonnet 5 (and
-  // later 5.x), Sonnet 4.6, and Haiku 5 (claude-haiku-5-5 is documented at
-  // a 1M window — Anthropic model card, released 2026-10-07). Haiku 4.5 and
-  // Sonnet 4.5 (both 200K) fall through to the default.
+  // later 5.x), Sonnet 4.6, and Haiku 5 (see #13). Haiku 4.5 and Sonnet 4.5
+  // (both 200K) fall through to the default.
   //
   // Add new 1M generations here (e.g. haiku-6, sonnet-6) — the version-tagged
   // pin is deliberate so a 200K generation of the same family stays 200K.
