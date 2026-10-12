@@ -46,6 +46,10 @@ describe("windowFor", () => {
     expect(windowFor("claude-haiku-5-20261007")).toBe(1_000_000);
   });
 
+  it("keeps a legacy claude-3-5-haiku id at 200K, not 1M", () => {
+    expect(windowFor("claude-3-5-haiku-20241022")).toBe(200_000);
+  });
+
   it("keeps a bare, version-less 'haiku' id at 200K, not 1M", () => {
     expect(windowFor("haiku")).toBe(200_000);
   });
