@@ -34,8 +34,24 @@ describe("windowFor", () => {
     expect(windowFor("claude-mythos-5")).toBe(1_000_000);
   });
 
-  it("treats Haiku as 200K context", () => {
+  it("treats Haiku 4.5 as 200K context, not 1M", () => {
     expect(windowFor("claude-haiku-4-5-20251001")).toBe(200_000);
+  });
+
+  it("treats Haiku 5.5 as 1M context", () => {
+    expect(windowFor("claude-haiku-5-5")).toBe(1_000_000);
+  });
+
+  it("treats a date-suffixed Haiku 5 id as 1M context", () => {
+    expect(windowFor("claude-haiku-5-20261007")).toBe(1_000_000);
+  });
+
+  it("keeps a legacy claude-3-5-haiku id at 200K, not 1M", () => {
+    expect(windowFor("claude-3-5-haiku-20241022")).toBe(200_000);
+  });
+
+  it("keeps a bare, version-less 'haiku' id at 200K, not 1M", () => {
+    expect(windowFor("haiku")).toBe(200_000);
   });
 
   it("defaults unknown/empty model strings to 200K", () => {
