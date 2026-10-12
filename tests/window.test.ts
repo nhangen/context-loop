@@ -1,5 +1,5 @@
 import { describe, it, expect } from "bun:test";
-import { windowFor } from "../hooks/context-loop-window";
+import { windowFor, clampFill } from "../hooks/context-loop-window";
 
 describe("windowFor", () => {
   it("treats Sonnet 5 as 1M context", () => {
@@ -55,5 +55,31 @@ describe("windowFor", () => {
   it("treats an unset override (empty string, as the gate script exports it) as no override", () => {
     expect(windowFor("claude-sonnet-5", "")).toBe(1_000_000);
     expect(windowFor("claude-haiku-4-5-20251001", "")).toBe(200_000);
+  });
+});
+
+describe("clampFill", () => {
+  it("caps any finite fraction above 1.0 at 1.0", () => {
+    expect(clampFill(1.24)).toBe(1);
+    expect(clampFill(99)).toBe(1);
+  });
+
+  it("treats non-finite junk as 0", () => {
+    expect(clampFill(Infinity)).toBe(0);
+  });
+
+  it("passes sub-cap fractions through unchanged", () => {
+    expect(clampFill(0)).toBe(0);
+    expect(clampFill(0.35)).toBe(0.35);
+    expect(clampFill(0.999)).toBe(0.999);
+  });
+
+  it("keeps exactly 1.0 at 1.0", () => {
+    expect(clampFill(1)).toBe(1);
+  });
+
+  it("floors negatives and NaN at 0", () => {
+    expect(clampFill(-0.5)).toBe(0);
+    expect(clampFill(NaN)).toBe(0);
   });
 });

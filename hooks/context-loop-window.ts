@@ -4,6 +4,16 @@
 // "claude-sonnet-4-6", "claude-sonnet-4-5-20250929"), so matching on the
 // version-tagged substring — not a bare family name — tells a 1M-context
 // Sonnet apart from a 200K one without guessing.
+// Usage can legitimately exceed the assumed window (a misdetected window, a
+// provider-reported figure above our assumption, a compaction-boundary shape
+// we don't recognize yet). Cap the reported fill at 100% so no code path can
+// emit a >100% reading; callers keep their raw sums for diagnostics.
+export function clampFill(fraction: number): number {
+  if (!Number.isFinite(fraction)) return 0;
+  if (fraction < 0) return 0;
+  return Math.min(1, fraction);
+}
+
 export function windowFor(model: string, envOverride?: string): number {
   const override = parseInt(envOverride ?? "", 10);
   if (Number.isFinite(override) && override > 0) return override;
