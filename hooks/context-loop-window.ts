@@ -18,6 +18,9 @@ export function breadcrumb(msg: string): void {
   } catch { /* best-effort */ }
 }
 
+// Known 200K generations: expected, so the fallback breadcrumb skips them.
+const KNOWN_200K = ["sonnet-4-5", "haiku-4-5", "3-5-haiku"];
+
 // Context-window size lookup by model id, with an env override.
 //
 // Model ids embed their generation precisely (e.g. "claude-sonnet-5",
@@ -37,6 +40,7 @@ export function windowFor(model: string, envOverride?: string): number {
   if (m.includes("opus") || m.includes("fable") || m.includes("mythos")) return 1_000_000;
   if (m.includes("sonnet-5") || m.includes("sonnet-4-6")) return 1_000_000;
   if (m.includes("haiku-5")) return 1_000_000;
+  if (KNOWN_200K.some((id) => m.includes(id))) return 200_000;
   breadcrumb("windowFor fallback model=" + (model || "unknown") + " window=200000");
   return 200_000;
 }

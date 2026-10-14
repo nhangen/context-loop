@@ -116,6 +116,13 @@ describe("windowFor", () => {
     expect(existsSync(logFile)).toBe(false);
   });
 
+  it("does not log fallback for known 200K generations", () => {
+    windowFor("claude-sonnet-4-5-20250929");
+    windowFor("claude-haiku-4-5-20251001");
+    windowFor("claude-3-5-haiku-20241022");
+    expect(existsSync(logFile)).toBe(false);
+  });
+
   it("does not log fallback when an explicit env override is active", () => {
     windowFor("unrecognized-model-123", "500000");
     expect(existsSync(logFile)).toBe(false);
