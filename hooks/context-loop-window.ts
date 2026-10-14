@@ -2,14 +2,14 @@ import { appendFileSync, mkdirSync } from "fs";
 import { join } from "path";
 import { homedir } from "os";
 
-function errorLogPath(): string {
+export function errorLogPath(): string {
   const env = process.env["CONTEXT_LOOP_ERROR_LOG"];
   if (env) return env;
   const home = process.env["HOME"] || homedir();
   return home ? join(home, ".claude", "context-loop-errors.log") : "";
 }
 
-function breadcrumb(msg: string): void {
+export function breadcrumb(msg: string): void {
   const p = errorLogPath();
   if (!p) return;
   try {

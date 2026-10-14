@@ -10,24 +10,13 @@
 // reflects that. The two tiers (advisory / escalated) differ in urgency,
 // not enforcement.
 
-import { readFileSync, writeFileSync, existsSync, mkdirSync, appendFileSync } from "fs";
+import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs";
 import { join } from "path";
-import { homedir } from "os";
 import {
   openWriterDb, recordFire, detectOutcomes, defaultDbPath,
   type FireRow, type PostFireSnapshot,
 } from "./context-loop-db";
-import { windowFor, clampFill } from "./context-loop-window";
-
-function breadcrumb(msg: string): void {
-  const home = homedir();
-  if (!home) return;
-  const path = join(home, ".claude", "context-loop-errors.log");
-  try {
-    mkdirSync(join(path, ".."), { recursive: true });
-    appendFileSync(path, new Date().toISOString() + " " + msg + "\n");
-  } catch { /* best-effort */ }
-}
+import { windowFor, clampFill, breadcrumb } from "./context-loop-window";
 
 const [
   , , transcriptPath, stateDir, sessionId,
@@ -158,16 +147,17 @@ try {
   analyticsDb = null;
 }
 
+const window = windowFor(lastModel, process.env["CONTEXT_LOOP_WINDOW"]);
+
 if (analyticsDb && sessionId) {
   const inp = lastUsage["input_tokens"] ?? 0;
   const cr = lastUsage["cache_read_input_tokens"] ?? 0;
   const cw = lastUsage["cache_creation_input_tokens"] ?? 0;
-  const w = windowFor(lastModel, process.env["CONTEXT_LOOP_WINDOW"]);
   const snap: PostFireSnapshot = {
     assistantUuids,
     lastTotalTokens: inp + cr + cw,
-    lastFillPct: clampFill((inp + cr + cw) / w),
-    windowSize: w,
+    lastFillPct: clampFill((inp + cr + cw) / window),
+    windowSize: window,
     hasCompactSummary,
   };
   try {
@@ -189,7 +179,6 @@ if (lastAssistantHadToolUse && process.env["CONTEXT_LOOP_FORCE"] !== "1") {
   }
 }
 
-const window = windowFor(lastModel, process.env["CONTEXT_LOOP_WINDOW"]);
 const inputTokens = lastUsage["input_tokens"] ?? 0;
 const cacheRead = lastUsage["cache_read_input_tokens"] ?? 0;
 const cacheCreate = lastUsage["cache_creation_input_tokens"] ?? 0;

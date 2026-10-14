@@ -2,20 +2,26 @@ import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import { mkdtempSync, rmSync, readFileSync, existsSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { windowFor, clampFill } from "../hooks/context-loop-window";
+import { windowFor, clampFill, errorLogPath, breadcrumb } from "../hooks/context-loop-window";
 
 describe("windowFor", () => {
   let tmpDir: string;
   let logFile: string;
+  let prevEnv: string | undefined;
 
   beforeEach(() => {
+    prevEnv = process.env["CONTEXT_LOOP_ERROR_LOG"];
     tmpDir = mkdtempSync(join(tmpdir(), "context-loop-window-test-"));
     logFile = join(tmpDir, "context-loop-errors.log");
     process.env["CONTEXT_LOOP_ERROR_LOG"] = logFile;
   });
 
   afterEach(() => {
-    delete process.env["CONTEXT_LOOP_ERROR_LOG"];
+    if (prevEnv === undefined) {
+      delete process.env["CONTEXT_LOOP_ERROR_LOG"];
+    } else {
+      process.env["CONTEXT_LOOP_ERROR_LOG"] = prevEnv;
+    }
     rmSync(tmpDir, { recursive: true, force: true });
   });
   it("treats Sonnet 5 as 1M context", () => {
@@ -140,5 +146,38 @@ describe("clampFill", () => {
     expect(clampFill(-0.5)).toBe(0);
     expect(clampFill(-Infinity)).toBe(0);
     expect(clampFill(NaN)).toBe(0);
+  });
+});
+
+describe("breadcrumb", () => {
+  let tmpDir: string;
+  let logFile: string;
+  let prevEnv: string | undefined;
+
+  beforeEach(() => {
+    prevEnv = process.env["CONTEXT_LOOP_ERROR_LOG"];
+    tmpDir = mkdtempSync(join(tmpdir(), "context-loop-breadcrumb-test-"));
+    logFile = join(tmpDir, "sub", "test.log");
+    process.env["CONTEXT_LOOP_ERROR_LOG"] = logFile;
+  });
+
+  afterEach(() => {
+    if (prevEnv === undefined) {
+      delete process.env["CONTEXT_LOOP_ERROR_LOG"];
+    } else {
+      process.env["CONTEXT_LOOP_ERROR_LOG"] = prevEnv;
+    }
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("appends timestamped message to the configured error log path", () => {
+    breadcrumb("test message");
+    expect(existsSync(logFile)).toBe(true);
+    const content = readFileSync(logFile, "utf8");
+    expect(content).toMatch(/^\d{4}-\d{2}-\d{2}T.* test message\n$/);
+  });
+
+  it("resolves CONTEXT_LOOP_ERROR_LOG from environment", () => {
+    expect(errorLogPath()).toBe(logFile);
   });
 });
