@@ -31,6 +31,7 @@ trap 'rm -rf "$TMP"' EXIT
 # Sandbox HOME so the gate's mkdir / DB writes go to TMP, never the user's
 # real ~/.claude during tests.
 export HOME="$TMP"
+export CONTEXT_LOOP_ERROR_LOG="$TMP/context-loop-errors.log"
 mkdir -p "$HOME/.claude"
 
 echo "test: empty input -> emits {} and exits 0"
