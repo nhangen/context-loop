@@ -1,23 +1,10 @@
 import { Database } from "bun:sqlite";
 import { join } from "path";
-import { mkdirSync, appendFileSync } from "fs";
+import { mkdirSync } from "fs";
 import { homedir } from "os";
+import { breadcrumb } from "./context-loop-window";
 
 export const SCHEMA_VERSION = 1;
-
-function errorLogPath(): string {
-  const home = homedir();
-  return home ? join(home, ".claude", "context-loop-errors.log") : "";
-}
-
-function breadcrumb(msg: string): void {
-  const p = errorLogPath();
-  if (!p) return;
-  try {
-    mkdirSync(join(p, ".."), { recursive: true });
-    appendFileSync(p, `${new Date().toISOString()} ${msg}\n`);
-  } catch { /* best-effort */ }
-}
 
 export interface FireRow {
   sessionId: string;

@@ -1,7 +1,29 @@
-import { describe, it, expect } from "bun:test";
-import { windowFor, clampFill } from "../hooks/context-loop-window";
+import { describe, it, expect, beforeEach, afterEach } from "bun:test";
+import { mkdtempSync, rmSync, readFileSync, existsSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
+import { windowFor, clampFill, errorLogPath, breadcrumb } from "../hooks/context-loop-window";
 
 describe("windowFor", () => {
+  let tmpDir: string;
+  let logFile: string;
+  let prevEnv: string | undefined;
+
+  beforeEach(() => {
+    prevEnv = process.env["CONTEXT_LOOP_ERROR_LOG"];
+    tmpDir = mkdtempSync(join(tmpdir(), "context-loop-window-test-"));
+    logFile = join(tmpDir, "context-loop-errors.log");
+    process.env["CONTEXT_LOOP_ERROR_LOG"] = logFile;
+  });
+
+  afterEach(() => {
+    if (prevEnv === undefined) {
+      delete process.env["CONTEXT_LOOP_ERROR_LOG"];
+    } else {
+      process.env["CONTEXT_LOOP_ERROR_LOG"] = prevEnv;
+    }
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
   it("treats Sonnet 5 as 1M context", () => {
     expect(windowFor("claude-sonnet-5")).toBe(1_000_000);
   });
@@ -72,6 +94,39 @@ describe("windowFor", () => {
     expect(windowFor("claude-sonnet-5", "")).toBe(1_000_000);
     expect(windowFor("claude-haiku-4-5-20251001", "")).toBe(200_000);
   });
+
+  it("logs unmatched model id at fallback to error log", () => {
+    windowFor("unrecognized-model-123");
+    expect(existsSync(logFile)).toBe(true);
+    const content = readFileSync(logFile, "utf8");
+    expect(content).toContain("windowFor fallback model=unrecognized-model-123 window=200000");
+  });
+
+  it("logs model=unknown when fallback model string is empty", () => {
+    windowFor("");
+    expect(existsSync(logFile)).toBe(true);
+    const content = readFileSync(logFile, "utf8");
+    expect(content).toContain("windowFor fallback model=unknown window=200000");
+  });
+
+  it("does not log fallback when a 1M model is matched", () => {
+    windowFor("claude-sonnet-5");
+    windowFor("claude-opus-4-7");
+    windowFor("claude-haiku-5-5");
+    expect(existsSync(logFile)).toBe(false);
+  });
+
+  it("does not log fallback for known 200K generations", () => {
+    windowFor("claude-sonnet-4-5-20250929");
+    windowFor("claude-haiku-4-5-20251001");
+    windowFor("claude-3-5-haiku-20241022");
+    expect(existsSync(logFile)).toBe(false);
+  });
+
+  it("does not log fallback when an explicit env override is active", () => {
+    windowFor("unrecognized-model-123", "500000");
+    expect(existsSync(logFile)).toBe(false);
+  });
 });
 
 describe("clampFill", () => {
@@ -98,5 +153,38 @@ describe("clampFill", () => {
     expect(clampFill(-0.5)).toBe(0);
     expect(clampFill(-Infinity)).toBe(0);
     expect(clampFill(NaN)).toBe(0);
+  });
+});
+
+describe("breadcrumb", () => {
+  let tmpDir: string;
+  let logFile: string;
+  let prevEnv: string | undefined;
+
+  beforeEach(() => {
+    prevEnv = process.env["CONTEXT_LOOP_ERROR_LOG"];
+    tmpDir = mkdtempSync(join(tmpdir(), "context-loop-breadcrumb-test-"));
+    logFile = join(tmpDir, "sub", "test.log");
+    process.env["CONTEXT_LOOP_ERROR_LOG"] = logFile;
+  });
+
+  afterEach(() => {
+    if (prevEnv === undefined) {
+      delete process.env["CONTEXT_LOOP_ERROR_LOG"];
+    } else {
+      process.env["CONTEXT_LOOP_ERROR_LOG"] = prevEnv;
+    }
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("appends timestamped message to the configured error log path", () => {
+    breadcrumb("test message");
+    expect(existsSync(logFile)).toBe(true);
+    const content = readFileSync(logFile, "utf8");
+    expect(content).toMatch(/^\d{4}-\d{2}-\d{2}T.* test message\n$/);
+  });
+
+  it("resolves CONTEXT_LOOP_ERROR_LOG from environment", () => {
+    expect(errorLogPath()).toBe(logFile);
   });
 });

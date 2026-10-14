@@ -49,7 +49,7 @@ export CONTEXT_LOOP_WINDOW="${CONTEXT_LOOP_WINDOW:-}"
 mkdir -p "$STATE_DIR" 2>/dev/null || true
 
 DB_PATH="${CONTEXT_LOOP_DB_PATH:-$HOME/.claude/context-loop.db}"
-ERROR_LOG="$HOME/.claude/context-loop-errors.log"
+ERROR_LOG="${CONTEXT_LOOP_ERROR_LOG:-$HOME/.claude/context-loop-errors.log}"
 mkdir -p "$(dirname "$ERROR_LOG")" 2>/dev/null || true
 
 "$BUN" "$HOOK_DIR/context-loop-worker.ts" \
