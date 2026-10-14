@@ -62,7 +62,7 @@ If the final assistant turn emitted `tool_use` blocks without matching `tool_res
 
 The divisor is a **dynamic variable**. `CONTEXT_LOOP_WINDOW`, if set to a positive integer, is used verbatim — this is the authoritative override for sessions whose real window the hook can't infer (1M-beta `[1m]`, fast-mode, model aliases, future models). With no override, it falls back to a model-name heuristic: `opus`, `fable`, `mythos`, `sonnet-5`, `sonnet-4-6`, and `haiku-5` → 1,000,000; everything else (including `sonnet-4-5`, `haiku-4-5`, and earlier) → 200,000. The match is on the version-tagged substring, not the bare family name — model ids embed the generation precisely (`claude-sonnet-5`, `claude-sonnet-4-6`, `claude-sonnet-4-5-<date>`), so this tells a 1M Sonnet apart from a 200K one without guessing.
 
-The heuristic is a guess, not ground truth — the transcript's `model` field carries no window size, and a misjudged divisor produces nonsense fill. Reported fill is capped at 100%, so a reading pinned at 100% usually means the divisor is too small; the hook also writes a breadcrumb with the raw ratio. When in doubt, set `CONTEXT_LOOP_WINDOW` explicitly.
+The heuristic is a guess, not ground truth — the transcript's `model` field carries no window size, and a misjudged divisor produces nonsense fill. Reported fill is capped at 100%, so a reading pinned at 100% usually means the divisor is too small; the hook also writes a breadcrumb when falling back to 200K and when raw fill exceeds the window. When in doubt, set `CONTEXT_LOOP_WINDOW` explicitly.
 
 ### `/compact` is best-effort
 
@@ -157,6 +157,7 @@ All via env vars on the hook command. Defaults are conservative for a 1M-window 
 | `CONTEXT_LOOP_WINDOW` | unset | Context-window size (tokens) used as the fill divisor. Overrides the model-name heuristic when set. |
 | `CONTEXT_LOOP_STATE_DIR` | `$HOME/.claude/state/context-loop` | Where per-session state JSON is persisted. |
 | `CONTEXT_LOOP_DB_PATH` | `$HOME/.claude/context-loop.db` | SQLite path for fires + outcomes analytics. |
+| `CONTEXT_LOOP_ERROR_LOG` | `$HOME/.claude/context-loop-errors.log` | Where breadcrumbs and errors are appended. |
 | `BUN_PATH` | autodetect | Path to `bun` binary if not on `$PATH`. |
 | `CONTEXT_LOOP_FORCE` | unset | Set to `1` to bypass mid-chain safety (testing only). |
 

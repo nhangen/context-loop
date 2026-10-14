@@ -1,7 +1,23 @@
-import { describe, it, expect } from "bun:test";
+import { describe, it, expect, beforeEach, afterEach } from "bun:test";
+import { mkdtempSync, rmSync, readFileSync, existsSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
 import { windowFor, clampFill } from "../hooks/context-loop-window";
 
 describe("windowFor", () => {
+  let tmpDir: string;
+  let logFile: string;
+
+  beforeEach(() => {
+    tmpDir = mkdtempSync(join(tmpdir(), "context-loop-window-test-"));
+    logFile = join(tmpDir, "context-loop-errors.log");
+    process.env["CONTEXT_LOOP_ERROR_LOG"] = logFile;
+  });
+
+  afterEach(() => {
+    delete process.env["CONTEXT_LOOP_ERROR_LOG"];
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
   it("treats Sonnet 5 as 1M context", () => {
     expect(windowFor("claude-sonnet-5")).toBe(1_000_000);
   });
@@ -71,6 +87,32 @@ describe("windowFor", () => {
   it("treats an unset override (empty string, as the gate script exports it) as no override", () => {
     expect(windowFor("claude-sonnet-5", "")).toBe(1_000_000);
     expect(windowFor("claude-haiku-4-5-20251001", "")).toBe(200_000);
+  });
+
+  it("logs unmatched model id at fallback to error log", () => {
+    windowFor("unrecognized-model-123");
+    expect(existsSync(logFile)).toBe(true);
+    const content = readFileSync(logFile, "utf8");
+    expect(content).toContain("windowFor fallback model=unrecognized-model-123 window=200000");
+  });
+
+  it("logs model=unknown when fallback model string is empty", () => {
+    windowFor("");
+    expect(existsSync(logFile)).toBe(true);
+    const content = readFileSync(logFile, "utf8");
+    expect(content).toContain("windowFor fallback model=unknown window=200000");
+  });
+
+  it("does not log fallback when a 1M model is matched", () => {
+    windowFor("claude-sonnet-5");
+    windowFor("claude-opus-4-7");
+    windowFor("claude-haiku-5-5");
+    expect(existsSync(logFile)).toBe(false);
+  });
+
+  it("does not log fallback when an explicit env override is active", () => {
+    windowFor("unrecognized-model-123", "500000");
+    expect(existsSync(logFile)).toBe(false);
   });
 });
 
