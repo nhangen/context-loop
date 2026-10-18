@@ -28,8 +28,17 @@ const KNOWN_200K = ["sonnet-4-5", "haiku-4-5", "3-5-haiku"];
 // version-tagged substring — not a bare family name — tells a 1M-context
 // Sonnet apart from a 200K one without guessing.
 export function windowFor(model: string, envOverride?: string): number {
-  const override = parseInt(envOverride ?? "", 10);
-  if (Number.isFinite(override) && override > 0) return override;
+  // Strict digits-only parse. parseInt accepted "1m" as 1, silently pinning
+  // fill at 100% every turn. Any rejected non-empty override gets a
+  // breadcrumb so the log blames the override, not the model fallback.
+  const raw = envOverride ?? "";
+  if (/^\d+$/.test(raw)) {
+    const parsed = Number(raw);
+    if (parsed > 0) return parsed;
+  }
+  if (raw !== "") {
+    breadcrumb("windowFor ignoring CONTEXT_LOOP_WINDOW=" + raw);
+  }
   const m = (model || "").toLowerCase();
   // 1M-context families: Opus (4.5+), Fable 5, Mythos 5, Sonnet 5 (and
   // later 5.x), Sonnet 4.6, and Haiku 5 (see #13). Haiku 4.5 and Sonnet 4.5

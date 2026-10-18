@@ -90,9 +90,28 @@ describe("windowFor", () => {
     expect(windowFor("claude-haiku-4-5-20251001", "0")).toBe(200_000);
   });
 
+  it("rejects a digits-with-suffix override like '1m' and logs it", () => {
+    expect(windowFor("claude-haiku-4-5-20251001", "1m")).toBe(200_000);
+    const content = readFileSync(logFile, "utf8");
+    expect(content).toContain("windowFor ignoring CONTEXT_LOOP_WINDOW=1m");
+  });
+
+  it("rejects a completely non-numeric override like 'abc' and logs it", () => {
+    expect(windowFor("claude-haiku-4-5-20251001", "abc")).toBe(200_000);
+    const content = readFileSync(logFile, "utf8");
+    expect(content).toContain("windowFor ignoring CONTEXT_LOOP_WINDOW=abc");
+  });
+
+  it("rejects a zero override and logs it", () => {
+    expect(windowFor("claude-haiku-4-5-20251001", "0")).toBe(200_000);
+    const content = readFileSync(logFile, "utf8");
+    expect(content).toContain("windowFor ignoring CONTEXT_LOOP_WINDOW=0");
+  });
+
   it("treats an unset override (empty string, as the gate script exports it) as no override", () => {
     expect(windowFor("claude-sonnet-5", "")).toBe(1_000_000);
     expect(windowFor("claude-haiku-4-5-20251001", "")).toBe(200_000);
+    expect(existsSync(logFile)).toBe(false);
   });
 
   it("logs unmatched model id at fallback to error log", () => {
