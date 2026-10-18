@@ -126,6 +126,13 @@ describe("windowFor", () => {
     expect(content).toContain("windowFor ignoring CONTEXT_LOOP_WINDOW=");
   });
 
+  it("sanitizes a rejected override so it cannot forge log lines", () => {
+    windowFor("claude-haiku-4-5-20251001", "500\nfill over window raw=1.000 window=1000000");
+    const content = readFileSync(logFile, "utf8");
+    expect(content.split("\n").filter(Boolean).length).toBe(1);
+    expect(content).toContain("500 fill over window raw=1.000 window=1000000");
+  });
+
   it("treats an unset override (empty string, as the gate script exports it) as no override", () => {
     expect(windowFor("claude-sonnet-5", "")).toBe(1_000_000);
     expect(windowFor("claude-haiku-4-5-20251001", "")).toBe(200_000);

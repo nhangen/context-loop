@@ -37,7 +37,7 @@ export function windowFor(model: string, envOverride?: string): number {
     if (Number.isFinite(parsed) && parsed > 0) return parsed;
   }
   if (raw !== "") {
-    breadcrumb("windowFor ignoring CONTEXT_LOOP_WINDOW=" + raw);
+    breadcrumb("windowFor ignoring CONTEXT_LOOP_WINDOW=" + raw.replace(/[\r\n]+/g, " ").slice(0, 200));
   }
   const m = (model || "").toLowerCase();
   // 1M-context families: Opus (4.5+), Fable 5, Mythos 5, Sonnet 5 (and
