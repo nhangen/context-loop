@@ -114,6 +114,18 @@ describe("windowFor", () => {
     expect(content).toContain("windowFor ignoring CONTEXT_LOOP_WINDOW=");
   });
 
+  it("rejects a '1m' override on a 1M model instead of returning 1", () => {
+    expect(windowFor("claude-sonnet-5", "1m")).toBe(1_000_000);
+    const content = readFileSync(logFile, "utf8");
+    expect(content).toContain("windowFor ignoring CONTEXT_LOOP_WINDOW=1m");
+  });
+
+  it("rejects a whitespace-padded override that parseInt used to accept", () => {
+    expect(windowFor("claude-haiku-4-5-20251001", " 500000")).toBe(200_000);
+    const content = readFileSync(logFile, "utf8");
+    expect(content).toContain("windowFor ignoring CONTEXT_LOOP_WINDOW=");
+  });
+
   it("treats an unset override (empty string, as the gate script exports it) as no override", () => {
     expect(windowFor("claude-sonnet-5", "")).toBe(1_000_000);
     expect(windowFor("claude-haiku-4-5-20251001", "")).toBe(200_000);
