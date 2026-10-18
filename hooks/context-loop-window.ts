@@ -34,7 +34,7 @@ export function windowFor(model: string, envOverride?: string): number {
   const raw = envOverride ?? "";
   if (/^\d+$/.test(raw)) {
     const parsed = Number(raw);
-    if (parsed > 0) return parsed;
+    if (Number.isFinite(parsed) && parsed > 0) return parsed;
   }
   if (raw !== "") {
     breadcrumb("windowFor ignoring CONTEXT_LOOP_WINDOW=" + raw);

@@ -108,6 +108,12 @@ describe("windowFor", () => {
     expect(content).toContain("windowFor ignoring CONTEXT_LOOP_WINDOW=0");
   });
 
+  it("rejects a digit string long enough to parse as Infinity", () => {
+    expect(windowFor("claude-haiku-4-5-20251001", "9".repeat(400))).toBe(200_000);
+    const content = readFileSync(logFile, "utf8");
+    expect(content).toContain("windowFor ignoring CONTEXT_LOOP_WINDOW=");
+  });
+
   it("treats an unset override (empty string, as the gate script exports it) as no override", () => {
     expect(windowFor("claude-sonnet-5", "")).toBe(1_000_000);
     expect(windowFor("claude-haiku-4-5-20251001", "")).toBe(200_000);
