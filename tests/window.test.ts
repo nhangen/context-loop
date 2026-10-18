@@ -90,9 +90,53 @@ describe("windowFor", () => {
     expect(windowFor("claude-haiku-4-5-20251001", "0")).toBe(200_000);
   });
 
+  it("rejects a digits-with-suffix override like '1m' and logs it", () => {
+    expect(windowFor("claude-haiku-4-5-20251001", "1m")).toBe(200_000);
+    const content = readFileSync(logFile, "utf8");
+    expect(content).toContain("windowFor ignoring CONTEXT_LOOP_WINDOW=1m");
+  });
+
+  it("rejects a completely non-numeric override like 'abc' and logs it", () => {
+    expect(windowFor("claude-haiku-4-5-20251001", "abc")).toBe(200_000);
+    const content = readFileSync(logFile, "utf8");
+    expect(content).toContain("windowFor ignoring CONTEXT_LOOP_WINDOW=abc");
+  });
+
+  it("rejects a zero override and logs it", () => {
+    expect(windowFor("claude-haiku-4-5-20251001", "0")).toBe(200_000);
+    const content = readFileSync(logFile, "utf8");
+    expect(content).toContain("windowFor ignoring CONTEXT_LOOP_WINDOW=0");
+  });
+
+  it("rejects a digit string long enough to parse as Infinity", () => {
+    expect(windowFor("claude-haiku-4-5-20251001", "9".repeat(400))).toBe(200_000);
+    const content = readFileSync(logFile, "utf8");
+    expect(content).toContain("windowFor ignoring CONTEXT_LOOP_WINDOW=");
+  });
+
+  it("rejects a '1m' override on a 1M model instead of returning 1", () => {
+    expect(windowFor("claude-sonnet-5", "1m")).toBe(1_000_000);
+    const content = readFileSync(logFile, "utf8");
+    expect(content).toContain("windowFor ignoring CONTEXT_LOOP_WINDOW=1m");
+  });
+
+  it("rejects a whitespace-padded override that parseInt used to accept", () => {
+    expect(windowFor("claude-haiku-4-5-20251001", " 500000")).toBe(200_000);
+    const content = readFileSync(logFile, "utf8");
+    expect(content).toContain("windowFor ignoring CONTEXT_LOOP_WINDOW=");
+  });
+
+  it("sanitizes a rejected override so it cannot forge log lines", () => {
+    windowFor("claude-haiku-4-5-20251001", "500\nfill over window raw=1.000 window=1000000");
+    const content = readFileSync(logFile, "utf8");
+    expect(content.split("\n").filter(Boolean).length).toBe(1);
+    expect(content).toContain("500 fill over window raw=1.000 window=1000000");
+  });
+
   it("treats an unset override (empty string, as the gate script exports it) as no override", () => {
     expect(windowFor("claude-sonnet-5", "")).toBe(1_000_000);
     expect(windowFor("claude-haiku-4-5-20251001", "")).toBe(200_000);
+    expect(existsSync(logFile)).toBe(false);
   });
 
   it("logs unmatched model id at fallback to error log", () => {
