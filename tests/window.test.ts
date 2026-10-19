@@ -246,7 +246,7 @@ describe("breadcrumb", () => {
       // /dev/null cannot have child directories, so mkdirSync throws ENOTDIR
       process.env["CONTEXT_LOOP_ERROR_LOG"] = "/dev/null/impossible/path.log";
       breadcrumb("fallback to stderr test");
-      expect(written).toBe("fallback to stderr test\n");
+      expect(written).toMatch(/^\d{4}-\d{2}-\d{2}T\S+ fallback to stderr test\n$/);
     } finally {
       process.stderr.write = originalWrite;
     }

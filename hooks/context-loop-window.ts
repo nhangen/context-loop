@@ -12,12 +12,13 @@ export function errorLogPath(): string {
 export function breadcrumb(msg: string): void {
   const p = errorLogPath();
   if (!p) return;
+  const line = `${new Date().toISOString()} ${msg}\n`;
   try {
     mkdirSync(join(p, ".."), { recursive: true });
-    appendFileSync(p, `${new Date().toISOString()} ${msg}\n`);
+    appendFileSync(p, line);
   } catch {
     try {
-      process.stderr.write(msg + "\n");
+      process.stderr.write(line);
     } catch {
       /* best-effort */
     }
