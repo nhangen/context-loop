@@ -349,6 +349,12 @@ describe("parseThreshold", () => {
     expect(content).toContain("0.45 forged error line");
   });
 
+  it("caps the logged rejected value at 200 characters", () => {
+    parseCooldownTurns("x".repeat(500), "CONTEXT_LOOP_COOLDOWN_TURNS", 15);
+    const line = readFileSync(logFile, "utf8").trimEnd();
+    expect(line.endsWith("=" + "x".repeat(200))).toBe(true);
+  });
+
   it("treats unset or empty override as default without logging", () => {
     expect(parseThreshold("", "CONTEXT_LOOP_ADVISORY_AT", 0.35)).toBe(0.35);
     expect(parseThreshold(undefined, "CONTEXT_LOOP_ADVISORY_AT", 0.35)).toBe(0.35);
@@ -378,63 +384,63 @@ describe("parseCooldownTurns", () => {
   });
 
   it("accepts valid positive integer turns", () => {
-    expect(parseCooldownTurns("15")).toBe(15);
-    expect(parseCooldownTurns("5")).toBe(5);
+    expect(parseCooldownTurns("15", "CONTEXT_LOOP_COOLDOWN_TURNS", 15)).toBe(15);
+    expect(parseCooldownTurns("5", "CONTEXT_LOOP_COOLDOWN_TURNS", 15)).toBe(5);
     expect(existsSync(logFile)).toBe(false);
   });
 
   it("rejects non-numeric override like 'abc' and logs it", () => {
-    expect(parseCooldownTurns("abc")).toBe(15);
+    expect(parseCooldownTurns("abc", "CONTEXT_LOOP_COOLDOWN_TURNS", 15)).toBe(15);
     const content = readFileSync(logFile, "utf8");
     expect(content).toContain("parseCooldownTurns ignoring CONTEXT_LOOP_COOLDOWN_TURNS=abc");
   });
 
   it("rejects suffix like '15turns' and logs it", () => {
-    expect(parseCooldownTurns("15turns")).toBe(15);
+    expect(parseCooldownTurns("15turns", "CONTEXT_LOOP_COOLDOWN_TURNS", 15)).toBe(15);
     const content = readFileSync(logFile, "utf8");
     expect(content).toContain("parseCooldownTurns ignoring CONTEXT_LOOP_COOLDOWN_TURNS=15turns");
   });
 
   it("rejects zero and logs it", () => {
-    expect(parseCooldownTurns("0")).toBe(15);
+    expect(parseCooldownTurns("0", "CONTEXT_LOOP_COOLDOWN_TURNS", 15)).toBe(15);
     const content = readFileSync(logFile, "utf8");
     expect(content).toContain("parseCooldownTurns ignoring CONTEXT_LOOP_COOLDOWN_TURNS=0");
   });
 
   it("rejects negative integer and logs it", () => {
-    expect(parseCooldownTurns("-5")).toBe(15);
+    expect(parseCooldownTurns("-5", "CONTEXT_LOOP_COOLDOWN_TURNS", 15)).toBe(15);
     const content = readFileSync(logFile, "utf8");
     expect(content).toContain("parseCooldownTurns ignoring CONTEXT_LOOP_COOLDOWN_TURNS=-5");
   });
 
   it("rejects decimal number and logs it", () => {
-    expect(parseCooldownTurns("15.5")).toBe(15);
+    expect(parseCooldownTurns("15.5", "CONTEXT_LOOP_COOLDOWN_TURNS", 15)).toBe(15);
     const content = readFileSync(logFile, "utf8");
     expect(content).toContain("parseCooldownTurns ignoring CONTEXT_LOOP_COOLDOWN_TURNS=15.5");
   });
 
   it("rejects whitespace-padded turns and logs it", () => {
-    expect(parseCooldownTurns(" 15")).toBe(15);
+    expect(parseCooldownTurns(" 15", "CONTEXT_LOOP_COOLDOWN_TURNS", 15)).toBe(15);
     const content = readFileSync(logFile, "utf8");
     expect(content).toContain("parseCooldownTurns ignoring CONTEXT_LOOP_COOLDOWN_TURNS= 15");
   });
 
   it("rejects string that parses to Infinity and logs it", () => {
-    expect(parseCooldownTurns("9".repeat(400))).toBe(15);
+    expect(parseCooldownTurns("9".repeat(400), "CONTEXT_LOOP_COOLDOWN_TURNS", 15)).toBe(15);
     const content = readFileSync(logFile, "utf8");
     expect(content).toContain("parseCooldownTurns ignoring CONTEXT_LOOP_COOLDOWN_TURNS=");
   });
 
   it("sanitizes rejected turns so it cannot forge log lines", () => {
-    parseCooldownTurns("15\nforged error line");
+    parseCooldownTurns("15\nforged error line", "CONTEXT_LOOP_COOLDOWN_TURNS", 15);
     const content = readFileSync(logFile, "utf8");
     expect(content.split("\n").filter(Boolean).length).toBe(1);
     expect(content).toContain("15 forged error line");
   });
 
   it("treats unset or empty override as default without logging", () => {
-    expect(parseCooldownTurns("")).toBe(15);
-    expect(parseCooldownTurns(undefined)).toBe(15);
+    expect(parseCooldownTurns("", "CONTEXT_LOOP_COOLDOWN_TURNS", 15)).toBe(15);
+    expect(parseCooldownTurns(undefined, "CONTEXT_LOOP_COOLDOWN_TURNS", 15)).toBe(15);
     expect(existsSync(logFile)).toBe(false);
   });
 });

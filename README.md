@@ -153,7 +153,7 @@ All via env vars on the hook command. Defaults are conservative for a 1M-window 
 |---|---|---|
 | `CONTEXT_LOOP_ADVISORY_AT` | `0.35` | Fill % at which the advisory tier fires (subject to cooldown). Must be a positive decimal <= 1.0; non-empty values that fail validation are ignored and logged. |
 | `CONTEXT_LOOP_ESCALATED_AT` | `0.50` | Fill % at which the escalated tier fires (ignores cooldown). Must be a positive decimal <= 1.0; non-empty values that fail validation are ignored and logged. |
-| `CONTEXT_LOOP_COOLDOWN_TURNS` | `15` | Assistant turns of cooldown after a fire (advisory tier only). Must be pure digits; non-empty values that fail validation are ignored and logged. |
+| `CONTEXT_LOOP_COOLDOWN_TURNS` | `15` | Assistant turns of cooldown after a fire (advisory tier only). Must be a positive integer (pure digits, > 0); a very large value effectively disables advisories. Non-empty values that fail validation are ignored and logged. |
 | `CONTEXT_LOOP_WINDOW` | unset | Context-window size (tokens) used as the fill divisor. Must be pure digits; non-empty values that fail validation are ignored and logged. Overrides the model-name heuristic when accepted. |
 | `CONTEXT_LOOP_STATE_DIR` | `$HOME/.claude/state/context-loop` | Where per-session state JSON is persisted. |
 | `CONTEXT_LOOP_DB_PATH` | `$HOME/.claude/context-loop.db` | SQLite path for fires + outcomes analytics. |
