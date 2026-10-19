@@ -211,6 +211,17 @@ check "  logs rejection breadcrumb" "$logged" "yes"
 unset CONTEXT_LOOP_COOLDOWN_TURNS
 unset CONTEXT_LOOP_WINDOW
 
+echo "test: typoed legacy CONTEXT_LOOP_BLOCK_AT is logged under its own name"
+export CONTEXT_LOOP_WINDOW=100000
+export CONTEXT_LOOP_BLOCK_AT="bad"
+TF="$TMP/t_block_at_typo.jsonl"
+printf '%s\n' "$PRECOMPACT" > "$TF"
+out=$(run_gate "$TF")
+logged="no"; if grep -q "parseThreshold ignoring CONTEXT_LOOP_BLOCK_AT=bad" "$CONTEXT_LOOP_ERROR_LOG" 2>/dev/null; then logged="yes"; fi
+check "  logs legacy variable name" "$logged" "yes"
+unset CONTEXT_LOOP_BLOCK_AT
+unset CONTEXT_LOOP_WINDOW
+
 echo
 echo "passed: $PASS  failed: $FAIL"
 if [ "$FAIL" -gt 0 ]; then

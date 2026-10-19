@@ -33,7 +33,7 @@ if (!transcriptPath || !stateDir) {
 }
 
 const advisoryAt = parseThreshold(advisoryAtRaw, "CONTEXT_LOOP_ADVISORY_AT", 0.35);
-const escalatedAt = parseThreshold(escalatedAtRaw, "CONTEXT_LOOP_ESCALATED_AT", 0.50);
+const escalatedAt = parseThreshold(escalatedAtRaw, process.env["CONTEXT_LOOP_ESCALATED_SRC"] || "CONTEXT_LOOP_ESCALATED_AT", 0.50);
 const cooldownTurns = parseCooldownTurns(cooldownTurnsRaw, "CONTEXT_LOOP_COOLDOWN_TURNS", 15);
 
 // stop_hook_active is supplied by Claude Code on Stop payloads when the
