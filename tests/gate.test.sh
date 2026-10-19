@@ -173,7 +173,43 @@ over="no"; case "$out" in *"125."*) over="yes";; esac
 check "  does not report 125%"  "$over"  "no"
 
 unset CONTEXT_LOOP_WINDOW
-# ---------------------------------------------------------------------------
+
+echo "test: typoed CONTEXT_LOOP_ADVISORY_AT logs breadcrumb and falls back to default"
+export CONTEXT_LOOP_WINDOW=100000
+export CONTEXT_LOOP_ADVISORY_AT="x0.45"
+TF="$TMP/t_advisory_typo.jsonl"
+printf '%s\n' "$POSTMID" > "$TF"
+out=$(run_gate "$TF")
+nag="no"; case "$out" in *"context at"*) nag="yes";; esac
+check "  nags using default 0.35" "$nag" "yes"
+logged="no"; if grep -q "parseThreshold ignoring CONTEXT_LOOP_ADVISORY_AT=x0.45" "$CONTEXT_LOOP_ERROR_LOG" 2>/dev/null; then logged="yes"; fi
+check "  logs rejection breadcrumb" "$logged" "yes"
+unset CONTEXT_LOOP_ADVISORY_AT
+unset CONTEXT_LOOP_WINDOW
+
+echo "test: typoed CONTEXT_LOOP_ESCALATED_AT logs breadcrumb and falls back to default"
+export CONTEXT_LOOP_WINDOW=100000
+export CONTEXT_LOOP_ESCALATED_AT="bad"
+TF="$TMP/t_escalated_typo.jsonl"
+printf '%s\n' "$PRECOMPACT" > "$TF"
+out=$(run_gate "$TF")
+nag="no"; case "$out" in *"context at"*) nag="yes";; esac
+check "  nags using default 0.50" "$nag" "yes"
+logged="no"; if grep -q "parseThreshold ignoring CONTEXT_LOOP_ESCALATED_AT=bad" "$CONTEXT_LOOP_ERROR_LOG" 2>/dev/null; then logged="yes"; fi
+check "  logs rejection breadcrumb" "$logged" "yes"
+unset CONTEXT_LOOP_ESCALATED_AT
+unset CONTEXT_LOOP_WINDOW
+
+echo "test: typoed CONTEXT_LOOP_COOLDOWN_TURNS logs breadcrumb and falls back to default"
+export CONTEXT_LOOP_WINDOW=100000
+export CONTEXT_LOOP_COOLDOWN_TURNS="15turns"
+TF="$TMP/t_cooldown_typo.jsonl"
+printf '%s\n' "$PRECOMPACT" > "$TF"
+out=$(run_gate "$TF")
+logged="no"; if grep -q "parseCooldownTurns ignoring CONTEXT_LOOP_COOLDOWN_TURNS=15turns" "$CONTEXT_LOOP_ERROR_LOG" 2>/dev/null; then logged="yes"; fi
+check "  logs rejection breadcrumb" "$logged" "yes"
+unset CONTEXT_LOOP_COOLDOWN_TURNS
+unset CONTEXT_LOOP_WINDOW
 
 echo
 echo "passed: $PASS  failed: $FAIL"

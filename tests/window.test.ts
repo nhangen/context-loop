@@ -2,7 +2,10 @@ import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import { mkdtempSync, rmSync, readFileSync, existsSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { windowFor, clampFill, errorLogPath, breadcrumb } from "../hooks/context-loop-window";
+import {
+  windowFor, clampFill, errorLogPath, breadcrumb,
+  parseThreshold, parseCooldownTurns,
+} from "../hooks/context-loop-window";
 
 describe("windowFor", () => {
   let tmpDir: string;
@@ -230,5 +233,208 @@ describe("breadcrumb", () => {
 
   it("resolves CONTEXT_LOOP_ERROR_LOG from environment", () => {
     expect(errorLogPath()).toBe(logFile);
+  });
+
+  it("falls back to process.stderr.write when error log path is unwritable", () => {
+    const originalWrite = process.stderr.write;
+    let written = "";
+    process.stderr.write = ((chunk: any) => {
+      written += String(chunk);
+      return true;
+    }) as any;
+    try {
+      // /dev/null cannot have child directories, so mkdirSync throws ENOTDIR
+      process.env["CONTEXT_LOOP_ERROR_LOG"] = "/dev/null/impossible/path.log";
+      breadcrumb("fallback to stderr test");
+      expect(written).toBe("fallback to stderr test\n");
+    } finally {
+      process.stderr.write = originalWrite;
+    }
+  });
+
+  it("survives when both appendFileSync and stderr.write fail", () => {
+    const originalWrite = process.stderr.write;
+    process.stderr.write = (() => {
+      throw new Error("EPIPE");
+    }) as any;
+    try {
+      process.env["CONTEXT_LOOP_ERROR_LOG"] = "/dev/null/impossible/path.log";
+      expect(() => breadcrumb("best-effort survives")).not.toThrow();
+    } finally {
+      process.stderr.write = originalWrite;
+    }
+  });
+});
+
+describe("parseThreshold", () => {
+  let tmpDir: string;
+  let logFile: string;
+  let prevEnv: string | undefined;
+
+  beforeEach(() => {
+    prevEnv = process.env["CONTEXT_LOOP_ERROR_LOG"];
+    tmpDir = mkdtempSync(join(tmpdir(), "context-loop-threshold-test-"));
+    logFile = join(tmpDir, "context-loop-errors.log");
+    process.env["CONTEXT_LOOP_ERROR_LOG"] = logFile;
+  });
+
+  afterEach(() => {
+    if (prevEnv === undefined) {
+      delete process.env["CONTEXT_LOOP_ERROR_LOG"];
+    } else {
+      process.env["CONTEXT_LOOP_ERROR_LOG"] = prevEnv;
+    }
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("accepts valid decimal threshold", () => {
+    expect(parseThreshold("0.35", "CONTEXT_LOOP_ADVISORY_AT", 0.35)).toBe(0.35);
+    expect(parseThreshold("0.5", "CONTEXT_LOOP_ESCALATED_AT", 0.5)).toBe(0.5);
+    expect(existsSync(logFile)).toBe(false);
+  });
+
+  it("accepts 1 and 1.0 (100% threshold)", () => {
+    expect(parseThreshold("1", "CONTEXT_LOOP_ESCALATED_AT", 0.5)).toBe(1);
+    expect(parseThreshold("1.0", "CONTEXT_LOOP_ESCALATED_AT", 0.5)).toBe(1);
+    expect(existsSync(logFile)).toBe(false);
+  });
+
+  it("accepts leading-dot decimal notation", () => {
+    expect(parseThreshold(".45", "CONTEXT_LOOP_ADVISORY_AT", 0.35)).toBe(0.45);
+    expect(existsSync(logFile)).toBe(false);
+  });
+
+  it("rejects a typoed threshold like 'x0.45' and logs it", () => {
+    expect(parseThreshold("x0.45", "CONTEXT_LOOP_ADVISORY_AT", 0.35)).toBe(0.35);
+    const content = readFileSync(logFile, "utf8");
+    expect(content).toContain("parseThreshold ignoring CONTEXT_LOOP_ADVISORY_AT=x0.45");
+  });
+
+  it("rejects threshold with trailing chars like '0.45abc' and logs it", () => {
+    expect(parseThreshold("0.45abc", "CONTEXT_LOOP_ADVISORY_AT", 0.35)).toBe(0.35);
+    const content = readFileSync(logFile, "utf8");
+    expect(content).toContain("parseThreshold ignoring CONTEXT_LOOP_ADVISORY_AT=0.45abc");
+  });
+
+  it("rejects whitespace-padded threshold and logs it", () => {
+    expect(parseThreshold(" 0.35", "CONTEXT_LOOP_ADVISORY_AT", 0.35)).toBe(0.35);
+    const content = readFileSync(logFile, "utf8");
+    expect(content).toContain("parseThreshold ignoring CONTEXT_LOOP_ADVISORY_AT= 0.35");
+  });
+
+  it("rejects a zero or negative threshold and logs it", () => {
+    expect(parseThreshold("0", "CONTEXT_LOOP_ADVISORY_AT", 0.35)).toBe(0.35);
+    expect(parseThreshold("-0.5", "CONTEXT_LOOP_ADVISORY_AT", 0.35)).toBe(0.35);
+    const content = readFileSync(logFile, "utf8");
+    expect(content).toContain("parseThreshold ignoring CONTEXT_LOOP_ADVISORY_AT=0");
+    expect(content).toContain("parseThreshold ignoring CONTEXT_LOOP_ADVISORY_AT=-0.5");
+  });
+
+  it("rejects a threshold above 1.0 and logs it", () => {
+    expect(parseThreshold("1.5", "CONTEXT_LOOP_ADVISORY_AT", 0.35)).toBe(0.35);
+    const content = readFileSync(logFile, "utf8");
+    expect(content).toContain("parseThreshold ignoring CONTEXT_LOOP_ADVISORY_AT=1.5");
+  });
+
+  it("rejects string that parses to Infinity and logs it", () => {
+    expect(parseThreshold("9".repeat(400), "CONTEXT_LOOP_ADVISORY_AT", 0.35)).toBe(0.35);
+    const content = readFileSync(logFile, "utf8");
+    expect(content).toContain("parseThreshold ignoring CONTEXT_LOOP_ADVISORY_AT=");
+  });
+
+  it("sanitizes rejected threshold so it cannot forge log lines", () => {
+    parseThreshold("0.45\nforged error line", "CONTEXT_LOOP_ADVISORY_AT", 0.35);
+    const content = readFileSync(logFile, "utf8");
+    expect(content.split("\n").filter(Boolean).length).toBe(1);
+    expect(content).toContain("0.45 forged error line");
+  });
+
+  it("treats unset or empty override as default without logging", () => {
+    expect(parseThreshold("", "CONTEXT_LOOP_ADVISORY_AT", 0.35)).toBe(0.35);
+    expect(parseThreshold(undefined, "CONTEXT_LOOP_ADVISORY_AT", 0.35)).toBe(0.35);
+    expect(existsSync(logFile)).toBe(false);
+  });
+});
+
+describe("parseCooldownTurns", () => {
+  let tmpDir: string;
+  let logFile: string;
+  let prevEnv: string | undefined;
+
+  beforeEach(() => {
+    prevEnv = process.env["CONTEXT_LOOP_ERROR_LOG"];
+    tmpDir = mkdtempSync(join(tmpdir(), "context-loop-cooldown-test-"));
+    logFile = join(tmpDir, "context-loop-errors.log");
+    process.env["CONTEXT_LOOP_ERROR_LOG"] = logFile;
+  });
+
+  afterEach(() => {
+    if (prevEnv === undefined) {
+      delete process.env["CONTEXT_LOOP_ERROR_LOG"];
+    } else {
+      process.env["CONTEXT_LOOP_ERROR_LOG"] = prevEnv;
+    }
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("accepts valid positive integer turns", () => {
+    expect(parseCooldownTurns("15")).toBe(15);
+    expect(parseCooldownTurns("5")).toBe(5);
+    expect(existsSync(logFile)).toBe(false);
+  });
+
+  it("rejects non-numeric override like 'abc' and logs it", () => {
+    expect(parseCooldownTurns("abc")).toBe(15);
+    const content = readFileSync(logFile, "utf8");
+    expect(content).toContain("parseCooldownTurns ignoring CONTEXT_LOOP_COOLDOWN_TURNS=abc");
+  });
+
+  it("rejects suffix like '15turns' and logs it", () => {
+    expect(parseCooldownTurns("15turns")).toBe(15);
+    const content = readFileSync(logFile, "utf8");
+    expect(content).toContain("parseCooldownTurns ignoring CONTEXT_LOOP_COOLDOWN_TURNS=15turns");
+  });
+
+  it("rejects zero and logs it", () => {
+    expect(parseCooldownTurns("0")).toBe(15);
+    const content = readFileSync(logFile, "utf8");
+    expect(content).toContain("parseCooldownTurns ignoring CONTEXT_LOOP_COOLDOWN_TURNS=0");
+  });
+
+  it("rejects negative integer and logs it", () => {
+    expect(parseCooldownTurns("-5")).toBe(15);
+    const content = readFileSync(logFile, "utf8");
+    expect(content).toContain("parseCooldownTurns ignoring CONTEXT_LOOP_COOLDOWN_TURNS=-5");
+  });
+
+  it("rejects decimal number and logs it", () => {
+    expect(parseCooldownTurns("15.5")).toBe(15);
+    const content = readFileSync(logFile, "utf8");
+    expect(content).toContain("parseCooldownTurns ignoring CONTEXT_LOOP_COOLDOWN_TURNS=15.5");
+  });
+
+  it("rejects whitespace-padded turns and logs it", () => {
+    expect(parseCooldownTurns(" 15")).toBe(15);
+    const content = readFileSync(logFile, "utf8");
+    expect(content).toContain("parseCooldownTurns ignoring CONTEXT_LOOP_COOLDOWN_TURNS= 15");
+  });
+
+  it("rejects string that parses to Infinity and logs it", () => {
+    expect(parseCooldownTurns("9".repeat(400))).toBe(15);
+    const content = readFileSync(logFile, "utf8");
+    expect(content).toContain("parseCooldownTurns ignoring CONTEXT_LOOP_COOLDOWN_TURNS=");
+  });
+
+  it("sanitizes rejected turns so it cannot forge log lines", () => {
+    parseCooldownTurns("15\nforged error line");
+    const content = readFileSync(logFile, "utf8");
+    expect(content.split("\n").filter(Boolean).length).toBe(1);
+    expect(content).toContain("15 forged error line");
+  });
+
+  it("treats unset or empty override as default without logging", () => {
+    expect(parseCooldownTurns("")).toBe(15);
+    expect(parseCooldownTurns(undefined)).toBe(15);
+    expect(existsSync(logFile)).toBe(false);
   });
 });

@@ -15,7 +15,13 @@ export function breadcrumb(msg: string): void {
   try {
     mkdirSync(join(p, ".."), { recursive: true });
     appendFileSync(p, `${new Date().toISOString()} ${msg}\n`);
-  } catch { /* best-effort */ }
+  } catch {
+    try {
+      process.stderr.write(msg + "\n");
+    } catch {
+      /* best-effort */
+    }
+  }
 }
 
 // Known 200K generations: expected, so the fallback breadcrumb skips them.
@@ -62,3 +68,44 @@ export function clampFill(fraction: number): number {
   if (Number.isNaN(fraction) || fraction < 0) return 0;
   return Math.min(1, fraction);
 }
+
+// Parse a fractional threshold (e.g. CONTEXT_LOOP_ADVISORY_AT, CONTEXT_LOOP_ESCALATED_AT).
+// Must be a positive decimal <= 1.0 (pure digits or decimal digits, no whitespace or suffixes).
+// Rejections are logged and fall back to the provided default.
+export function parseThreshold(
+  rawVal: string | undefined,
+  varName: string,
+  fallback: number
+): number {
+  const raw = rawVal ?? "";
+  if (/^(?:\d+(?:\.\d+)?|\.\d+)$/.test(raw)) {
+    const parsed = Number(raw);
+    if (Number.isFinite(parsed) && parsed > 0 && parsed <= 1) return parsed;
+  }
+  if (raw !== "") {
+    breadcrumb(`parseThreshold ignoring ${varName}=` + raw.replace(/[\r\n]+/g, " ").slice(0, 200));
+  }
+  return fallback;
+}
+
+// Parse cooldown turns (CONTEXT_LOOP_COOLDOWN_TURNS).
+// Must be a positive integer (pure digits > 0, no whitespace or suffixes).
+// Rejections are logged and fall back to the provided default.
+export function parseCooldownTurns(
+  rawVal: string | undefined,
+  varNameOrFallback: string | number = "CONTEXT_LOOP_COOLDOWN_TURNS",
+  maybeFallback = 15
+): number {
+  const varName = typeof varNameOrFallback === "string" ? varNameOrFallback : "CONTEXT_LOOP_COOLDOWN_TURNS";
+  const fallback = typeof varNameOrFallback === "number" ? varNameOrFallback : maybeFallback;
+  const raw = rawVal ?? "";
+  if (/^\d+$/.test(raw)) {
+    const parsed = Number(raw);
+    if (Number.isFinite(parsed) && parsed > 0) return parsed;
+  }
+  if (raw !== "") {
+    breadcrumb(`parseCooldownTurns ignoring ${varName}=` + raw.replace(/[\r\n]+/g, " ").slice(0, 200));
+  }
+  return fallback;
+}
+
