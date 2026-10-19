@@ -349,6 +349,27 @@ describe("parseThreshold", () => {
     expect(content).toContain("parseThreshold ignoring CONTEXT_LOOP_ADVISORY_AT=");
   });
 
+  it("rejects exponential and signed / trailing-dot notations", () => {
+    // "1e-1" parses to the valid 0.1, but the strict parser does not accept
+    // exponent, sign, or trailing-dot syntax — it must fall back and log.
+    for (const raw of ["1e-1", "1e0", "+0.5", "1."]) {
+      expect(parseThreshold(raw, "CONTEXT_LOOP_ADVISORY_AT", 0.35)).toBe(0.35);
+    }
+    const content = readFileSync(logFile, "utf8");
+    for (const raw of ["1e-1", "1e0", "+0.5", "1."]) {
+      expect(content).toContain(`parseThreshold ignoring CONTEXT_LOOP_ADVISORY_AT=${raw}`);
+    }
+  });
+
+  it("accepts leading-zero decimals (00.5, 00.35) — same value, valid range", () => {
+    // The parser's grammar (^\\d+(?:\\.\\d+)?$) intentionally allows leading
+    // zeros: 00.5 is numerically identical to 0.5 and safely in range, so it
+    // must be accepted, not rejected.
+    expect(parseThreshold("00.5", "CONTEXT_LOOP_ESCALATED_AT", 0.35)).toBe(0.5);
+    expect(parseThreshold("00.35", "CONTEXT_LOOP_ADVISORY_AT", 0.5)).toBe(0.35);
+    expect(existsSync(logFile)).toBe(false);
+  });
+
   it("sanitizes rejected threshold so it cannot forge log lines", () => {
     parseThreshold("0.45\nforged error line", "CONTEXT_LOOP_ADVISORY_AT", 0.35);
     const content = readFileSync(logFile, "utf8");

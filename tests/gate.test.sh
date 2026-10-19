@@ -65,6 +65,11 @@ export CONTEXT_LOOP_WINDOW=100000
 
 # Large pre-compact assistant turn (fill 0.80 -> escalated), plain text so the
 # mid-chain tool-use guard doesn't short-circuit for the wrong reason.
+#
+# Deliberately above the ESCALATED default of 0.50, not at it: the "nags using
+# default 0.50" test below needs a fill strictly between 0.35 and 0.50 to
+# distinguish the default from a broken 0.80 override (which would also nag
+# here), and between 0.50 and the typoed 0.80 override (which would not).
 PRECOMPACT='{"type":"assistant","uuid":"a1","message":{"model":"claude-opus-4-8","usage":{"input_tokens":1,"cache_read_input_tokens":80000,"cache_creation_input_tokens":0,"output_tokens":100},"content":[{"type":"text","text":"pre"}]}}'
 COMPACT='{"type":"user","isCompactSummary":true,"message":{"content":[{"type":"text","text":"summary"}]}}'
 POSTSMALL='{"type":"assistant","uuid":"a2","message":{"model":"claude-opus-4-8","usage":{"input_tokens":1,"cache_read_input_tokens":5000,"cache_creation_input_tokens":0,"output_tokens":50},"content":[{"type":"text","text":"post"}]}}'
@@ -82,6 +87,13 @@ NON_USER_COMPACT_FLAG='{"type":"system","subtype":"status","isCompactSummary":tr
 # Mid-range post-boundary turn: fill 0.40 -> above advisory (0.35), below
 # escalated (0.50), so the cooldown branch actually decides the outcome.
 POSTMID='{"type":"assistant","uuid":"a2","message":{"model":"claude-opus-4-8","usage":{"input_tokens":1,"cache_read_input_tokens":40000,"cache_creation_input_tokens":0,"output_tokens":50},"content":[{"type":"text","text":"post"}]}}'
+
+# Fill 0.45 -> above the ADVISORY default (0.35) and strictly BELOW the
+# ESCALATED default (0.50). This is the pin: with the escalated default in
+# effect it nags only via the advisory tier, so a broken 0.80 default would
+# be silent here, while the typoed-override test below (override 0.80) must
+# stay silent.
+POSTDEFAULT='{"type":"assistant","uuid":"a3","message":{"model":"claude-opus-4-8","usage":{"input_tokens":1,"cache_read_input_tokens":45000,"cache_creation_input_tokens":0,"output_tokens":50},"content":[{"type":"text","text":"post"}]}}'
 
 run_gate() {  # $1 = transcript file
   printf '{"transcript_path":"%s","session_id":"cbtest"}' "$1" | "$GATE" 2>/dev/null
@@ -131,6 +143,28 @@ TF="$TMP/t_cooldown_control.jsonl"
 printf '%s\n%s\n' "$PRECOMPACT" "$POSTMID" > "$TF"
 out=$(run_gate_session "$TF" "cbcool")
 check "  output {}"  "$out"  "{}"
+
+# Pin the DEFAULT cooldown length (15), not just "some suppression": the
+# last-fired uuid (a1) sits 14 turns behind the final turn, so a default of
+# 14 would let this advisory through while the real default of 15 must not.
+# A recent fire (state lastFiredUuid=a1) is the precondition the issue asks
+# for: the suppression is attributed to cooldown, not to fill or tier.
+echo "test: advisory within the default 15-turn cooldown of a recent fire -> no nag"
+{
+  printf '%s\n' "$PRECOMPACT"
+  for i in $(seq 1 14); do printf '{"type":"assistant","uuid":"z%s","message":{"model":"claude-opus-4-8","usage":{"input_tokens":1,"cache_read_input_tokens":40000,"cache_creation_input_tokens":0,"output_tokens":50},"content":[{"type":"text","text":"p"}]}}\n' "$i"; done
+} > "$TMP/t_cooldown_15.jsonl"
+out=$(run_gate_session "$TMP/t_cooldown_15.jsonl" "cbcool")
+check "  output {}"  "$out"  "{}"
+
+# Counterfactual: the very same 15-turn transcript passes a 14-turn cooldown
+# (a recent fire 15 turns back is >= 14 turns old), proving the suppression
+# above comes from the default being 15 rather than some smaller number.
+export CONTEXT_LOOP_COOLDOWN_TURNS=14
+out=$(run_gate_session "$TMP/t_cooldown_15.jsonl" "cbcool")
+nag="no"; case "$out" in *"context at"*) nag="yes";; esac
+check "  same transcript nags under an explicit 14-turn cooldown" "$nag" "yes"
+unset CONTEXT_LOOP_COOLDOWN_TURNS
 
 # Re-seed: a firing run rewrites the state file.
 printf '{"lastFiredUuid":"a1","lastFiredFill":0.8,"lastFiredAt":"2026-01-01T00:00:00Z"}' \
@@ -189,14 +223,22 @@ unset CONTEXT_LOOP_WINDOW
 
 echo "test: typoed CONTEXT_LOOP_ESCALATED_AT logs breadcrumb and falls back to default"
 export CONTEXT_LOOP_WINDOW=100000
+# Typoed (invalid) override -> must log a rejection and fall back to 0.50.
 export CONTEXT_LOOP_ESCALATED_AT="bad"
 TF="$TMP/t_escalated_typo.jsonl"
-printf '%s\n' "$PRECOMPACT" > "$TF"
+printf '%s\n' "$POSTDEFAULT" > "$TF"
 out=$(run_gate "$TF")
 nag="no"; case "$out" in *"context at"*) nag="yes";; esac
 check "  nags using default 0.50" "$nag" "yes"
 logged="no"; if grep -q "parseThreshold ignoring CONTEXT_LOOP_ESCALATED_AT=bad" "$CONTEXT_LOOP_ERROR_LOG" 2>/dev/null; then logged="yes"; fi
 check "  logs rejection breadcrumb" "$logged" "yes"
+# Pin the fallback VALUE, not just that it nags: a VALID 0.80 override stays
+# silent at this fill while the 0.50 default must fire the advisory tier.
+export CONTEXT_LOOP_ESCALATED_AT="0.80"
+TF="$TMP/t_escalated_override_silent.jsonl"
+printf '%s\n' "$POSTDEFAULT" > "$TF"
+out=$(run_gate "$TF")
+check "  valid 0.80 override stays silent" "$out" "{}"
 unset CONTEXT_LOOP_ESCALATED_AT
 unset CONTEXT_LOOP_WINDOW
 
@@ -208,6 +250,27 @@ printf '%s\n' "$PRECOMPACT" > "$TF"
 out=$(run_gate "$TF")
 logged="no"; if grep -q "parseCooldownTurns ignoring CONTEXT_LOOP_COOLDOWN_TURNS=15turns" "$CONTEXT_LOOP_ERROR_LOG" 2>/dev/null; then logged="yes"; fi
 check "  logs rejection breadcrumb" "$logged" "yes"
+# Pin the fallback VALUE, not just the breadcrumb: "15turns" is a typo of 15,
+# so use 14 for the counterfactual. The same fill sits 14 turns past its last
+# fire: the default-15 fallback must still suppress the advisory, while a
+# valid 14-turn override must let it through.
+{
+  printf '%s\n' "$PRECOMPACT"
+  for i in $(seq 1 14); do printf '{"type":"assistant","uuid":"c%s","message":{"model":"claude-opus-4-8","usage":{"input_tokens":1,"cache_read_input_tokens":40000,"cache_creation_input_tokens":0,"output_tokens":50},"content":[{"type":"text","text":"p"}]}}\n' "$i"; done
+} > "$TMP/t_cooldown_typo_pin.jsonl"
+export CONTEXT_LOOP_STATE_DIR="$TMP/cooldown-state"
+mkdir -p "$CONTEXT_LOOP_STATE_DIR"
+printf '{"lastFiredUuid":"a1","lastFiredFill":0.8,"lastFiredAt":"2026-01-01T00:00:00Z"}' \
+  > "$CONTEXT_LOOP_STATE_DIR/pin.json"
+out=$(run_gate_session "$TMP/t_cooldown_typo_pin.jsonl" "pin")
+check "  typo falls back to 15: advisory still suppressed" "$out" "{}"
+export CONTEXT_LOOP_COOLDOWN_TURNS=14
+printf '{"lastFiredUuid":"a1","lastFiredFill":0.8,"lastFiredAt":"2026-01-01T00:00:00Z"}' \
+  > "$CONTEXT_LOOP_STATE_DIR/pin.json"
+out=$(run_gate_session "$TMP/t_cooldown_typo_pin.jsonl" "pin")
+nag="no"; case "$out" in *"context at"*) nag="yes";; esac
+check "  valid 14-turn override lets the advisory through" "$nag" "yes"
+unset CONTEXT_LOOP_STATE_DIR
 unset CONTEXT_LOOP_COOLDOWN_TURNS
 unset CONTEXT_LOOP_WINDOW
 
