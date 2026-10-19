@@ -12,10 +12,17 @@ export function errorLogPath(): string {
 export function breadcrumb(msg: string): void {
   const p = errorLogPath();
   if (!p) return;
+  const line = `${new Date().toISOString()} ${msg.replace(/[\r\n]+/g, " ")}\n`;
   try {
     mkdirSync(join(p, ".."), { recursive: true });
-    appendFileSync(p, `${new Date().toISOString()} ${msg}\n`);
-  } catch { /* best-effort */ }
+    appendFileSync(p, line);
+  } catch {
+    try {
+      process.stderr.write(line);
+    } catch {
+      /* best-effort */
+    }
+  }
 }
 
 // Known 200K generations: expected, so the fallback breadcrumb skips them.
@@ -27,6 +34,10 @@ const KNOWN_200K = ["sonnet-4-5", "haiku-4-5", "3-5-haiku"];
 // "claude-sonnet-4-6", "claude-sonnet-4-5-20250929"), so matching on the
 // version-tagged substring — not a bare family name — tells a 1M-context
 // Sonnet apart from a 200K one without guessing.
+function logRejected(fn: string, varName: string, raw: string): void {
+  breadcrumb(`${fn} ignoring ${varName}=` + raw.slice(0, 200));
+}
+
 export function windowFor(model: string, envOverride?: string): number {
   // Strict digits-only parse. parseInt accepted "1m" as 1, silently pinning
   // fill at 100% every turn. Any rejected non-empty override gets a
@@ -37,7 +48,7 @@ export function windowFor(model: string, envOverride?: string): number {
     if (Number.isFinite(parsed) && parsed > 0) return parsed;
   }
   if (raw !== "") {
-    breadcrumb("windowFor ignoring CONTEXT_LOOP_WINDOW=" + raw.replace(/[\r\n]+/g, " ").slice(0, 200));
+    logRejected("windowFor", "CONTEXT_LOOP_WINDOW", raw);
   }
   const m = (model || "").toLowerCase();
   // 1M-context families: Opus (4.5+), Fable 5, Mythos 5, Sonnet 5 (and
@@ -62,3 +73,42 @@ export function clampFill(fraction: number): number {
   if (Number.isNaN(fraction) || fraction < 0) return 0;
   return Math.min(1, fraction);
 }
+
+// Parse a fractional threshold (e.g. CONTEXT_LOOP_ADVISORY_AT, CONTEXT_LOOP_ESCALATED_AT).
+// Must be a positive decimal <= 1.0 (pure digits or decimal digits, no whitespace or suffixes).
+// Rejections are logged and fall back to the provided default.
+export function parseThreshold(
+  rawVal: string | undefined,
+  varName: string,
+  fallback: number
+): number {
+  const raw = rawVal ?? "";
+  if (/^(?:\d+(?:\.\d+)?|\.\d+)$/.test(raw)) {
+    const parsed = Number(raw);
+    if (Number.isFinite(parsed) && parsed > 0 && parsed <= 1) return parsed;
+  }
+  if (raw !== "") {
+    logRejected("parseThreshold", varName, raw);
+  }
+  return fallback;
+}
+
+// Parse cooldown turns (CONTEXT_LOOP_COOLDOWN_TURNS).
+// Must be a positive integer (pure digits > 0, no whitespace or suffixes).
+// Rejections are logged and fall back to the provided default.
+export function parseCooldownTurns(
+  rawVal: string | undefined,
+  varName: string,
+  fallback: number
+): number {
+  const raw = rawVal ?? "";
+  if (/^\d+$/.test(raw)) {
+    const parsed = Number(raw);
+    if (Number.isFinite(parsed) && parsed > 0) return parsed;
+  }
+  if (raw !== "") {
+    logRejected("parseCooldownTurns", varName, raw);
+  }
+  return fallback;
+}
+

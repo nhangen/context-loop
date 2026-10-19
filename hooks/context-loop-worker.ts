@@ -16,7 +16,10 @@ import {
   openWriterDb, recordFire, detectOutcomes, defaultDbPath,
   type FireRow, type PostFireSnapshot,
 } from "./context-loop-db";
-import { windowFor, clampFill, breadcrumb } from "./context-loop-window";
+import {
+  windowFor, clampFill, breadcrumb,
+  parseThreshold, parseCooldownTurns,
+} from "./context-loop-window";
 
 const [
   , , transcriptPath, stateDir, sessionId,
@@ -29,9 +32,9 @@ if (!transcriptPath || !stateDir) {
   process.exit(0);
 }
 
-const advisoryAt = parseFloat(advisoryAtRaw ?? "0.35");
-const escalatedAt = parseFloat(escalatedAtRaw ?? "0.50");
-const cooldownTurns = parseInt(cooldownTurnsRaw ?? "15");
+const advisoryAt = parseThreshold(advisoryAtRaw, "CONTEXT_LOOP_ADVISORY_AT", 0.35);
+const escalatedAt = parseThreshold(escalatedAtRaw, process.env["CONTEXT_LOOP_ESCALATED_SRC"] || "CONTEXT_LOOP_ESCALATED_AT", 0.50);
+const cooldownTurns = parseCooldownTurns(cooldownTurnsRaw, "CONTEXT_LOOP_COOLDOWN_TURNS", 15);
 
 // stop_hook_active is supplied by Claude Code on Stop payloads when the
 // hook itself is causing the agent to continue. We never want to fire on
