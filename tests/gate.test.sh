@@ -87,6 +87,7 @@ POSTMID='{"type":"assistant","uuid":"a2","message":{"model":"claude-opus-4-8","u
 # (0.50): the worker words this "consider /compact". Fill 0.55 -> above both:
 # "run /compact". The two wordings are the only way to tell which tier fired.
 POSTDEFAULT='{"type":"assistant","uuid":"a3","message":{"model":"claude-opus-4-8","usage":{"input_tokens":1,"cache_read_input_tokens":45000,"cache_creation_input_tokens":0,"output_tokens":50},"content":[{"type":"text","text":"post"}]}}'
+POSTLOW='{"type":"assistant","uuid":"a5","message":{"model":"claude-opus-4-8","usage":{"input_tokens":1,"cache_read_input_tokens":25000,"cache_creation_input_tokens":0,"output_tokens":50},"content":[{"type":"text","text":"post"}]}}'
 POSTESC='{"type":"assistant","uuid":"a4","message":{"model":"claude-opus-4-8","usage":{"input_tokens":1,"cache_read_input_tokens":55000,"cache_creation_input_tokens":0,"output_tokens":50},"content":[{"type":"text","text":"post"}]}}'
 
 run_gate() {  # $1 = transcript file
@@ -241,6 +242,22 @@ out=$(run_gate_session "$TMP/t_escalated_hi.jsonl" "esc-ok-hi")
 tier="other"; case "$out" in *"consider /compact"*) tier="advisory";; esac
 check "  valid 0.80 override keeps fill 0.55 at the advisory tier" "$tier" "advisory"
 unset CONTEXT_LOOP_ESCALATED_AT
+unset CONTEXT_LOOP_WINDOW
+
+# gate.sh supplies its own defaults when the variables are unset, so the
+# typo arms above (which pass "bad" through) never reach them.
+echo "test: unset thresholds use the gate defaults (advisory 0.35, escalated 0.50)"
+export CONTEXT_LOOP_WINDOW=100000
+unset CONTEXT_LOOP_ADVISORY_AT CONTEXT_LOOP_ESCALATED_AT CONTEXT_LOOP_BLOCK_AT
+printf '%s\n' "$POSTLOW" > "$TMP/t_default_low.jsonl"
+out=$(run_gate_session "$TMP/t_default_low.jsonl" "def-low")
+check "  fill 0.25 is below the 0.35 default: silent" "$out" "{}"
+out=$(run_gate_session "$TMP/t_escalated_lo.jsonl" "def-lo")
+tier="other"; case "$out" in *"consider /compact"*) tier="advisory";; esac
+check "  fill 0.45: advisory wording" "$tier" "advisory"
+out=$(run_gate_session "$TMP/t_escalated_hi.jsonl" "def-hi")
+tier="other"; case "$out" in *"run /compact"*) tier="escalated";; esac
+check "  fill 0.55: escalated wording" "$tier" "escalated"
 unset CONTEXT_LOOP_WINDOW
 
 echo "test: typoed CONTEXT_LOOP_COOLDOWN_TURNS logs breadcrumb and falls back to default"
