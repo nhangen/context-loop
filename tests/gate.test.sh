@@ -231,7 +231,7 @@ printf '%s\n' "$POSTMID" > "$TF"
 out=$(run_gate_session "$TF" "t_thresh_gt")
 nag="no"; case "$out" in *"context at"*) nag="yes";; esac
 check "  nags using default 0.35" "$nag" "yes"
-logged="no"; if grep -q "validateThresholds ignoring advisory >= escalated (advisory=0.9 escalated=0.5)" "$CONTEXT_LOOP_ERROR_LOG" 2>/dev/null; then logged="yes"; fi
+logged="no"; if grep -q "validateThresholds ignoring CONTEXT_LOOP_ADVISORY_AT=0.9 >= CONTEXT_LOOP_ESCALATED_AT=0.5; using defaults advisory=0.35 escalated=0.5" "$CONTEXT_LOOP_ERROR_LOG" 2>/dev/null; then logged="yes"; fi
 check "  logs rejection breadcrumb" "$logged" "yes"
 unset CONTEXT_LOOP_ADVISORY_AT
 unset CONTEXT_LOOP_ESCALATED_AT
@@ -246,10 +246,40 @@ printf '%s\n' "$POSTMID" > "$TF"
 out=$(run_gate_session "$TF" "t_thresh_eq")
 nag="no"; case "$out" in *"context at"*) nag="yes";; esac
 check "  nags using default 0.35" "$nag" "yes"
-logged="no"; if grep -q "validateThresholds ignoring advisory >= escalated (advisory=0.5 escalated=0.5)" "$CONTEXT_LOOP_ERROR_LOG" 2>/dev/null; then logged="yes"; fi
+logged="no"; if grep -q "validateThresholds ignoring CONTEXT_LOOP_ADVISORY_AT=0.5 >= CONTEXT_LOOP_ESCALATED_AT=0.5; using defaults advisory=0.35 escalated=0.5" "$CONTEXT_LOOP_ERROR_LOG" 2>/dev/null; then logged="yes"; fi
 check "  logs rejection breadcrumb" "$logged" "yes"
 unset CONTEXT_LOOP_ADVISORY_AT
 unset CONTEXT_LOOP_ESCALATED_AT
+unset CONTEXT_LOOP_WINDOW
+
+echo "test: valid advisory above a typoed escalated is rejected against the default escalated"
+export CONTEXT_LOOP_WINDOW=100000
+export CONTEXT_LOOP_ADVISORY_AT="0.6"
+export CONTEXT_LOOP_ESCALATED_AT="bad"
+TF="$TMP/t_threshold_mixed.jsonl"
+printf '%s\n' "$POSTMID" > "$TF"
+out=$(run_gate_session "$TF" "t_thresh_mixed")
+nag="no"; case "$out" in *"context at"*) nag="yes";; esac
+check "  nags using default 0.35" "$nag" "yes"
+logged="no"; if grep -q "parseThreshold ignoring CONTEXT_LOOP_ESCALATED_AT=bad" "$CONTEXT_LOOP_ERROR_LOG" 2>/dev/null; then logged="yes"; fi
+check "  logs the typoed variable" "$logged" "yes"
+logged="no"; if grep -q "validateThresholds ignoring CONTEXT_LOOP_ADVISORY_AT=0.6 >= CONTEXT_LOOP_ESCALATED_AT=0.5; using defaults advisory=0.35 escalated=0.5" "$CONTEXT_LOOP_ERROR_LOG" 2>/dev/null; then logged="yes"; fi
+check "  logs the ordering rejection" "$logged" "yes"
+unset CONTEXT_LOOP_ADVISORY_AT
+unset CONTEXT_LOOP_ESCALATED_AT
+unset CONTEXT_LOOP_WINDOW
+
+echo "test: legacy CONTEXT_LOOP_BLOCK_AT below the default advisory is blamed under its own name"
+export CONTEXT_LOOP_WINDOW=100000
+export CONTEXT_LOOP_BLOCK_AT="0.3"
+TF="$TMP/t_threshold_legacy.jsonl"
+printf '%s\n' "$POSTMID" > "$TF"
+out=$(run_gate_session "$TF" "t_thresh_legacy")
+nag="no"; case "$out" in *"context at"*) nag="yes";; esac
+check "  nags using default 0.35" "$nag" "yes"
+logged="no"; if grep -q "validateThresholds ignoring CONTEXT_LOOP_ADVISORY_AT=0.35 >= CONTEXT_LOOP_BLOCK_AT=0.3; using defaults advisory=0.35 escalated=0.5" "$CONTEXT_LOOP_ERROR_LOG" 2>/dev/null; then logged="yes"; fi
+check "  logs legacy variable name" "$logged" "yes"
+unset CONTEXT_LOOP_BLOCK_AT
 unset CONTEXT_LOOP_WINDOW
 
 echo

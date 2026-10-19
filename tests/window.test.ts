@@ -482,12 +482,19 @@ describe("validateThresholds", () => {
   it("rejects advisory > escalated, logs breadcrumb, and falls back both to defaults", () => {
     expect(validateThresholds(0.9, 0.5)).toEqual([DEFAULT_ADVISORY_AT, DEFAULT_ESCALATED_AT]);
     const content = readFileSync(logFile, "utf8");
-    expect(content).toContain("validateThresholds ignoring advisory >= escalated (advisory=0.9 escalated=0.5)");
+    expect(content).toContain("validateThresholds ignoring CONTEXT_LOOP_ADVISORY_AT=0.9 >= CONTEXT_LOOP_ESCALATED_AT=0.5; using defaults advisory=0.35 escalated=0.5");
   });
 
   it("rejects advisory === escalated (e.g. 0.5 and 0.5), logs breadcrumb, and falls back both to defaults", () => {
     expect(validateThresholds(0.5, 0.5)).toEqual([DEFAULT_ADVISORY_AT, DEFAULT_ESCALATED_AT]);
     const content = readFileSync(logFile, "utf8");
-    expect(content).toContain("validateThresholds ignoring advisory >= escalated (advisory=0.5 escalated=0.5)");
+    expect(content).toContain("validateThresholds ignoring CONTEXT_LOOP_ADVISORY_AT=0.5 >= CONTEXT_LOOP_ESCALATED_AT=0.5; using defaults advisory=0.35 escalated=0.5");
+  });
+
+  it("names the variables it was given, so a legacy alias is blamed under its own name", () => {
+    expect(validateThresholds(0.35, 0.3, "CONTEXT_LOOP_ADVISORY_AT", "CONTEXT_LOOP_BLOCK_AT"))
+      .toEqual([DEFAULT_ADVISORY_AT, DEFAULT_ESCALATED_AT]);
+    const content = readFileSync(logFile, "utf8");
+    expect(content).toContain("validateThresholds ignoring CONTEXT_LOOP_ADVISORY_AT=0.35 >= CONTEXT_LOOP_BLOCK_AT=0.3; using defaults advisory=0.35 escalated=0.5");
   });
 });

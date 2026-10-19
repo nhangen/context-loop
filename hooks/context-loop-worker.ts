@@ -34,9 +34,12 @@ if (!transcriptPath || !stateDir) {
   process.exit(0);
 }
 
+const escalatedVar = process.env["CONTEXT_LOOP_ESCALATED_SRC"] || "CONTEXT_LOOP_ESCALATED_AT";
 const [advisoryAt, escalatedAt] = validateThresholds(
   parseThreshold(advisoryAtRaw, "CONTEXT_LOOP_ADVISORY_AT", DEFAULT_ADVISORY_AT),
-  parseThreshold(escalatedAtRaw, process.env["CONTEXT_LOOP_ESCALATED_SRC"] || "CONTEXT_LOOP_ESCALATED_AT", DEFAULT_ESCALATED_AT),
+  parseThreshold(escalatedAtRaw, escalatedVar, DEFAULT_ESCALATED_AT),
+  "CONTEXT_LOOP_ADVISORY_AT",
+  escalatedVar,
 );
 const cooldownTurns = parseCooldownTurns(cooldownTurnsRaw, "CONTEXT_LOOP_COOLDOWN_TURNS", DEFAULT_COOLDOWN_TURNS);
 
