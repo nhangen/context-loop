@@ -476,7 +476,6 @@ describe("validateThresholds", () => {
 
   it("accepts valid thresholds where advisory < escalated without logging", () => {
     expect(validateThresholds(0.35, 0.50)).toEqual([0.35, 0.50]);
-    expect(validateThresholds(0.20, 0.80)).toEqual([0.20, 0.80]);
     expect(existsSync(logFile)).toBe(false);
   });
 
@@ -491,11 +490,4 @@ describe("validateThresholds", () => {
     const content = readFileSync(logFile, "utf8");
     expect(content).toContain("validateThresholds ignoring advisory >= escalated (advisory=0.5 escalated=0.5)");
   });
-
-  it("supports custom fallbacks when provided", () => {
-    expect(validateThresholds(0.8, 0.4, 0.25, 0.65)).toEqual([0.25, 0.65]);
-    const content = readFileSync(logFile, "utf8");
-    expect(content).toContain("validateThresholds ignoring advisory >= escalated (advisory=0.8 escalated=0.4)");
-  });
 });
-

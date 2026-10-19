@@ -252,8 +252,6 @@ unset CONTEXT_LOOP_ADVISORY_AT
 unset CONTEXT_LOOP_ESCALATED_AT
 unset CONTEXT_LOOP_WINDOW
 
-
-
 echo
 echo "passed: $PASS  failed: $FAIL"
 if [ "$FAIL" -gt 0 ]; then

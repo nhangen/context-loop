@@ -121,14 +121,12 @@ export const DEFAULT_COOLDOWN_TURNS = 15;
 export function validateThresholds(
   advisoryAt: number,
   escalatedAt: number,
-  defaultAdvisory = DEFAULT_ADVISORY_AT,
-  defaultEscalated = DEFAULT_ESCALATED_AT,
 ): [number, number] {
   if (advisoryAt >= escalatedAt) {
     breadcrumb(
       `validateThresholds ignoring advisory >= escalated (advisory=${advisoryAt} escalated=${escalatedAt})`,
     );
-    return [defaultAdvisory, defaultEscalated];
+    return [DEFAULT_ADVISORY_AT, DEFAULT_ESCALATED_AT];
   }
   return [advisoryAt, escalatedAt];
 }
