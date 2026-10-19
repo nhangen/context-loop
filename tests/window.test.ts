@@ -362,9 +362,7 @@ describe("parseThreshold", () => {
   });
 
   it("accepts leading-zero decimals (00.5, 00.35) — same value, valid range", () => {
-    // The parser's grammar (^\\d+(?:\\.\\d+)?$) intentionally allows leading
-    // zeros: 00.5 is numerically identical to 0.5 and safely in range, so it
-    // must be accepted, not rejected.
+    // 00.5 is numerically 0.5 and in range, so it is accepted, not rejected.
     expect(parseThreshold("00.5", "CONTEXT_LOOP_ESCALATED_AT", 0.35)).toBe(0.5);
     expect(parseThreshold("00.35", "CONTEXT_LOOP_ADVISORY_AT", 0.5)).toBe(0.35);
     expect(existsSync(logFile)).toBe(false);
