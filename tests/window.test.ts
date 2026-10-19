@@ -5,6 +5,7 @@ import { join } from "path";
 import {
   windowFor, clampFill, errorLogPath, breadcrumb,
   parseThreshold, parseCooldownTurns,
+  validateThresholds, DEFAULT_ADVISORY_AT, DEFAULT_ESCALATED_AT,
 } from "../hooks/context-loop-window";
 
 describe("windowFor", () => {
@@ -468,5 +469,51 @@ describe("parseCooldownTurns", () => {
     expect(parseCooldownTurns("", "CONTEXT_LOOP_COOLDOWN_TURNS", 15)).toBe(15);
     expect(parseCooldownTurns(undefined, "CONTEXT_LOOP_COOLDOWN_TURNS", 15)).toBe(15);
     expect(existsSync(logFile)).toBe(false);
+  });
+});
+
+describe("validateThresholds", () => {
+  let tmpDir: string;
+  let logFile: string;
+  let prevEnv: string | undefined;
+
+  beforeEach(() => {
+    prevEnv = process.env["CONTEXT_LOOP_ERROR_LOG"];
+    tmpDir = mkdtempSync(join(tmpdir(), "context-loop-validate-test-"));
+    logFile = join(tmpDir, "context-loop-errors.log");
+    process.env["CONTEXT_LOOP_ERROR_LOG"] = logFile;
+  });
+
+  afterEach(() => {
+    if (prevEnv === undefined) {
+      delete process.env["CONTEXT_LOOP_ERROR_LOG"];
+    } else {
+      process.env["CONTEXT_LOOP_ERROR_LOG"] = prevEnv;
+    }
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("accepts valid thresholds where advisory < escalated without logging", () => {
+    expect(validateThresholds(0.35, 0.50)).toEqual([0.35, 0.50]);
+    expect(existsSync(logFile)).toBe(false);
+  });
+
+  it("rejects advisory > escalated, logs breadcrumb, and falls back both to defaults", () => {
+    expect(validateThresholds(0.9, 0.5)).toEqual([DEFAULT_ADVISORY_AT, DEFAULT_ESCALATED_AT]);
+    const content = readFileSync(logFile, "utf8");
+    expect(content).toContain("validateThresholds ignoring CONTEXT_LOOP_ADVISORY_AT=0.9 >= CONTEXT_LOOP_ESCALATED_AT=0.5; using defaults advisory=0.35 escalated=0.5");
+  });
+
+  it("rejects advisory === escalated (e.g. 0.5 and 0.5), logs breadcrumb, and falls back both to defaults", () => {
+    expect(validateThresholds(0.5, 0.5)).toEqual([DEFAULT_ADVISORY_AT, DEFAULT_ESCALATED_AT]);
+    const content = readFileSync(logFile, "utf8");
+    expect(content).toContain("validateThresholds ignoring CONTEXT_LOOP_ADVISORY_AT=0.5 >= CONTEXT_LOOP_ESCALATED_AT=0.5; using defaults advisory=0.35 escalated=0.5");
+  });
+
+  it("names the variables it was given, so a legacy alias is blamed under its own name", () => {
+    expect(validateThresholds(0.35, 0.3, "CONTEXT_LOOP_ADVISORY_AT", "CONTEXT_LOOP_BLOCK_AT"))
+      .toEqual([DEFAULT_ADVISORY_AT, DEFAULT_ESCALATED_AT]);
+    const content = readFileSync(logFile, "utf8");
+    expect(content).toContain("validateThresholds ignoring CONTEXT_LOOP_ADVISORY_AT=0.35 >= CONTEXT_LOOP_BLOCK_AT=0.3; using defaults advisory=0.35 escalated=0.5");
   });
 });
