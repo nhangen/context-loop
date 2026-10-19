@@ -12,7 +12,7 @@ export function errorLogPath(): string {
 export function breadcrumb(msg: string): void {
   const p = errorLogPath();
   if (!p) return;
-  const line = `${new Date().toISOString()} ${msg}\n`;
+  const line = `${new Date().toISOString()} ${msg.replace(/[\r\n]+/g, " ")}\n`;
   try {
     mkdirSync(join(p, ".."), { recursive: true });
     appendFileSync(p, line);
@@ -35,7 +35,7 @@ const KNOWN_200K = ["sonnet-4-5", "haiku-4-5", "3-5-haiku"];
 // version-tagged substring — not a bare family name — tells a 1M-context
 // Sonnet apart from a 200K one without guessing.
 function logRejected(fn: string, varName: string, raw: string): void {
-  breadcrumb(`${fn} ignoring ${varName}=` + raw.replace(/[\r\n]+/g, " ").slice(0, 200));
+  breadcrumb(`${fn} ignoring ${varName}=` + raw.slice(0, 200));
 }
 
 export function windowFor(model: string, envOverride?: string): number {

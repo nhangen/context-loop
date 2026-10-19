@@ -231,6 +231,13 @@ describe("breadcrumb", () => {
     expect(content).toMatch(/^\d{4}-\d{2}-\d{2}T.* test message\n$/);
   });
 
+  it("collapses newlines in any message so callers cannot forge log lines", () => {
+    breadcrumb("db open failed: boom\nforged line");
+    const content = readFileSync(logFile, "utf8");
+    expect(content.split("\n").filter(Boolean).length).toBe(1);
+    expect(content).toContain("boom forged line");
+  });
+
   it("resolves CONTEXT_LOOP_ERROR_LOG from environment", () => {
     expect(errorLogPath()).toBe(logFile);
   });
