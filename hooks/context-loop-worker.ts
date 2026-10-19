@@ -19,6 +19,8 @@ import {
 import {
   windowFor, clampFill, breadcrumb,
   parseThreshold, parseCooldownTurns,
+  validateThresholds,
+  DEFAULT_ADVISORY_AT, DEFAULT_ESCALATED_AT, DEFAULT_COOLDOWN_TURNS,
 } from "./context-loop-window";
 
 const [
@@ -32,9 +34,11 @@ if (!transcriptPath || !stateDir) {
   process.exit(0);
 }
 
-const advisoryAt = parseThreshold(advisoryAtRaw, "CONTEXT_LOOP_ADVISORY_AT", 0.35);
-const escalatedAt = parseThreshold(escalatedAtRaw, process.env["CONTEXT_LOOP_ESCALATED_SRC"] || "CONTEXT_LOOP_ESCALATED_AT", 0.50);
-const cooldownTurns = parseCooldownTurns(cooldownTurnsRaw, "CONTEXT_LOOP_COOLDOWN_TURNS", 15);
+const [advisoryAt, escalatedAt] = validateThresholds(
+  parseThreshold(advisoryAtRaw, "CONTEXT_LOOP_ADVISORY_AT", DEFAULT_ADVISORY_AT),
+  parseThreshold(escalatedAtRaw, process.env["CONTEXT_LOOP_ESCALATED_SRC"] || "CONTEXT_LOOP_ESCALATED_AT", DEFAULT_ESCALATED_AT),
+);
+const cooldownTurns = parseCooldownTurns(cooldownTurnsRaw, "CONTEXT_LOOP_COOLDOWN_TURNS", DEFAULT_COOLDOWN_TURNS);
 
 // stop_hook_active is supplied by Claude Code on Stop payloads when the
 // hook itself is causing the agent to continue. We never want to fire on

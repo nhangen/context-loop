@@ -112,3 +112,24 @@ export function parseCooldownTurns(
   return fallback;
 }
 
+export const DEFAULT_ADVISORY_AT = 0.35;
+export const DEFAULT_ESCALATED_AT = 0.50;
+export const DEFAULT_COOLDOWN_TURNS = 15;
+
+// Validate that advisory threshold is strictly below escalated threshold.
+// If advisoryAt >= escalatedAt, logs a breadcrumb and falls back both to defaults.
+export function validateThresholds(
+  advisoryAt: number,
+  escalatedAt: number,
+  defaultAdvisory = DEFAULT_ADVISORY_AT,
+  defaultEscalated = DEFAULT_ESCALATED_AT,
+): [number, number] {
+  if (advisoryAt >= escalatedAt) {
+    breadcrumb(
+      `validateThresholds ignoring advisory >= escalated (advisory=${advisoryAt} escalated=${escalatedAt})`,
+    );
+    return [defaultAdvisory, defaultEscalated];
+  }
+  return [advisoryAt, escalatedAt];
+}
+

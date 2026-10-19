@@ -5,6 +5,7 @@ import { join } from "path";
 import {
   windowFor, clampFill, errorLogPath, breadcrumb,
   parseThreshold, parseCooldownTurns,
+  validateThresholds, DEFAULT_ADVISORY_AT, DEFAULT_ESCALATED_AT,
 } from "../hooks/context-loop-window";
 
 describe("windowFor", () => {
@@ -451,3 +452,50 @@ describe("parseCooldownTurns", () => {
     expect(existsSync(logFile)).toBe(false);
   });
 });
+
+describe("validateThresholds", () => {
+  let tmpDir: string;
+  let logFile: string;
+  let prevEnv: string | undefined;
+
+  beforeEach(() => {
+    prevEnv = process.env["CONTEXT_LOOP_ERROR_LOG"];
+    tmpDir = mkdtempSync(join(tmpdir(), "context-loop-validate-test-"));
+    logFile = join(tmpDir, "context-loop-errors.log");
+    process.env["CONTEXT_LOOP_ERROR_LOG"] = logFile;
+  });
+
+  afterEach(() => {
+    if (prevEnv === undefined) {
+      delete process.env["CONTEXT_LOOP_ERROR_LOG"];
+    } else {
+      process.env["CONTEXT_LOOP_ERROR_LOG"] = prevEnv;
+    }
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("accepts valid thresholds where advisory < escalated without logging", () => {
+    expect(validateThresholds(0.35, 0.50)).toEqual([0.35, 0.50]);
+    expect(validateThresholds(0.20, 0.80)).toEqual([0.20, 0.80]);
+    expect(existsSync(logFile)).toBe(false);
+  });
+
+  it("rejects advisory > escalated, logs breadcrumb, and falls back both to defaults", () => {
+    expect(validateThresholds(0.9, 0.5)).toEqual([DEFAULT_ADVISORY_AT, DEFAULT_ESCALATED_AT]);
+    const content = readFileSync(logFile, "utf8");
+    expect(content).toContain("validateThresholds ignoring advisory >= escalated (advisory=0.9 escalated=0.5)");
+  });
+
+  it("rejects advisory === escalated (e.g. 0.5 and 0.5), logs breadcrumb, and falls back both to defaults", () => {
+    expect(validateThresholds(0.5, 0.5)).toEqual([DEFAULT_ADVISORY_AT, DEFAULT_ESCALATED_AT]);
+    const content = readFileSync(logFile, "utf8");
+    expect(content).toContain("validateThresholds ignoring advisory >= escalated (advisory=0.5 escalated=0.5)");
+  });
+
+  it("supports custom fallbacks when provided", () => {
+    expect(validateThresholds(0.8, 0.4, 0.25, 0.65)).toEqual([0.25, 0.65]);
+    const content = readFileSync(logFile, "utf8");
+    expect(content).toContain("validateThresholds ignoring advisory >= escalated (advisory=0.8 escalated=0.4)");
+  });
+});
+

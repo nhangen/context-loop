@@ -222,6 +222,38 @@ check "  logs legacy variable name" "$logged" "yes"
 unset CONTEXT_LOOP_BLOCK_AT
 unset CONTEXT_LOOP_WINDOW
 
+echo "test: advisory > escalated logs breadcrumb and falls back both to defaults"
+export CONTEXT_LOOP_WINDOW=100000
+export CONTEXT_LOOP_ADVISORY_AT="0.9"
+export CONTEXT_LOOP_ESCALATED_AT="0.5"
+TF="$TMP/t_threshold_gt.jsonl"
+printf '%s\n' "$POSTMID" > "$TF"
+out=$(run_gate_session "$TF" "t_thresh_gt")
+nag="no"; case "$out" in *"context at"*) nag="yes";; esac
+check "  nags using default 0.35" "$nag" "yes"
+logged="no"; if grep -q "validateThresholds ignoring advisory >= escalated (advisory=0.9 escalated=0.5)" "$CONTEXT_LOOP_ERROR_LOG" 2>/dev/null; then logged="yes"; fi
+check "  logs rejection breadcrumb" "$logged" "yes"
+unset CONTEXT_LOOP_ADVISORY_AT
+unset CONTEXT_LOOP_ESCALATED_AT
+unset CONTEXT_LOOP_WINDOW
+
+echo "test: advisory == escalated logs breadcrumb and falls back both to defaults"
+export CONTEXT_LOOP_WINDOW=100000
+export CONTEXT_LOOP_ADVISORY_AT="0.5"
+export CONTEXT_LOOP_ESCALATED_AT="0.5"
+TF="$TMP/t_threshold_eq.jsonl"
+printf '%s\n' "$POSTMID" > "$TF"
+out=$(run_gate_session "$TF" "t_thresh_eq")
+nag="no"; case "$out" in *"context at"*) nag="yes";; esac
+check "  nags using default 0.35" "$nag" "yes"
+logged="no"; if grep -q "validateThresholds ignoring advisory >= escalated (advisory=0.5 escalated=0.5)" "$CONTEXT_LOOP_ERROR_LOG" 2>/dev/null; then logged="yes"; fi
+check "  logs rejection breadcrumb" "$logged" "yes"
+unset CONTEXT_LOOP_ADVISORY_AT
+unset CONTEXT_LOOP_ESCALATED_AT
+unset CONTEXT_LOOP_WINDOW
+
+
+
 echo
 echo "passed: $PASS  failed: $FAIL"
 if [ "$FAIL" -gt 0 ]; then
