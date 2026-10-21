@@ -41,9 +41,12 @@ fi
 
 HOOK_DIR="$(cd "$(dirname "$0")" && pwd)"
 STATE_DIR="${CONTEXT_LOOP_STATE_DIR:-$HOME/.claude/state/context-loop}"
-ADVISORY_AT="${CONTEXT_LOOP_ADVISORY_AT:-0.35}"
-ESCALATED_AT="${CONTEXT_LOOP_ESCALATED_AT:-${CONTEXT_LOOP_BLOCK_AT:-0.50}}"
-COOLDOWN_TURNS="${CONTEXT_LOOP_COOLDOWN_TURNS:-15}"
+# Threshold and cooldown defaults live in context-loop-window.ts
+# (DEFAULT_ADVISORY_AT etc.); empty args here let the worker resolve them,
+# so there is a single source that can't drift from the parse fallbacks.
+ADVISORY_AT="${CONTEXT_LOOP_ADVISORY_AT:-}"
+ESCALATED_AT="${CONTEXT_LOOP_ESCALATED_AT:-${CONTEXT_LOOP_BLOCK_AT:-}}"
+COOLDOWN_TURNS="${CONTEXT_LOOP_COOLDOWN_TURNS:-}"
 export CONTEXT_LOOP_ESCALATED_SRC="CONTEXT_LOOP_ESCALATED_AT"
 if [ -z "${CONTEXT_LOOP_ESCALATED_AT:-}" ] && [ -n "${CONTEXT_LOOP_BLOCK_AT:-}" ]; then
   CONTEXT_LOOP_ESCALATED_SRC="CONTEXT_LOOP_BLOCK_AT"

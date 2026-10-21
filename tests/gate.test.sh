@@ -244,9 +244,10 @@ check "  valid 0.80 override keeps fill 0.55 at the advisory tier" "$tier" "advi
 unset CONTEXT_LOOP_ESCALATED_AT
 unset CONTEXT_LOOP_WINDOW
 
-# gate.sh supplies its own defaults when the variables are unset, so the
-# typo arms above (which pass "bad" through) never reach them.
-echo "test: unset thresholds use the gate defaults (advisory 0.35, escalated 0.50)"
+# gate.sh passes empty args when the variables are unset (issue #25), so the
+# TS constants in context-loop-window.ts are the single source of truth and
+# the typo arms above (which pass "bad" through) never reach them.
+echo "test: unset thresholds use the TS-constant defaults (advisory 0.35, escalated 0.50)"
 export CONTEXT_LOOP_WINDOW=100000
 unset CONTEXT_LOOP_ADVISORY_AT CONTEXT_LOOP_ESCALATED_AT CONTEXT_LOOP_BLOCK_AT
 printf '%s\n' "$POSTLOW" > "$TMP/t_default_low.jsonl"
@@ -259,6 +260,14 @@ out=$(run_gate_session "$TMP/t_escalated_hi.jsonl" "def-hi")
 tier="other"; case "$out" in *"run /compact"*) tier="escalated";; esac
 check "  fill 0.55: escalated wording" "$tier" "escalated"
 unset CONTEXT_LOOP_WINDOW
+
+# Static guard for issue #25: the gate must not carry its own copies of
+# 0.35 / 0.50 / 15 — the worker's DEFAULT_* constants are the single source,
+# so a reintroduced literal default would silently drift from the parse
+# fallbacks again.
+echo "test: gate.sh no longer hardcodes the threshold/cooldown default literals"
+dups="$(grep -nE '0\.35|0\.50|:-15' "$GATE" || true)"
+check "  no duplicated defaults in gate.sh" "$dups" ""
 
 echo "test: typoed CONTEXT_LOOP_COOLDOWN_TURNS logs breadcrumb and falls back to default"
 export CONTEXT_LOOP_WINDOW=100000
